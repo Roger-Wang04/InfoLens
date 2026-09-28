@@ -4,7 +4,7 @@
 Modes:
   off  — default red (idle)
   on   — idle tiles + green check badge (analysis done)
-  busy — 8 tiles; filled 0–7 are gray→red in reading order (analyzing)
+  busy — filled 0 is all gray; filled 1–7 are gray→red
 """
 
 from pathlib import Path
@@ -122,9 +122,8 @@ def main() -> None:
         busy = paint_unit("busy", filled)
         suffix = "" if filled == 0 else f"-{filled}"
         for size in ACTION_SIZES:
-            busy.resize((size, size), Image.Resampling.NEAREST).save(
-                out / f"icon{size}-busy{suffix}.png"
-            )
+            icon = busy.resize((size, size), Image.Resampling.NEAREST)
+            icon.save(out / f"icon{size}-busy{suffix}.png")
             print(f"wrote icon{size}-busy{suffix}.png")
     for size in ACTION_SIZES:
         base = unit.resize((size, size), Image.Resampling.NEAREST)

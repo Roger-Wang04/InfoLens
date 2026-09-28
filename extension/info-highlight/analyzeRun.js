@@ -3,14 +3,14 @@
  */
 globalThis.IH_analyzeRun ||= (function () {
   /** 一轮 UI 批处理最多连续处理的段数。与 semantic MAX_CHUNKS_PER_SEARCH 解耦，可单独调整。 */
-  const MAX_SEGMENTS_PER_RUN = 8;
+  const MAX_SEGMENTS_PER_RUN = 16;
   /** SYNC: local/scoring.js → alignUtf16Offsets fail() */
   const ALIGN_FAIL = 'token offset align failed';
 
-  function sendAnalyze(text, skipCache, { armCloudWait = false } = {}) {
+  function sendAnalyze(text, skipCache, { armCloudWait = false, cloudModel = '' } = {}) {
     const waitMs = globalThis.IH_cloudWait?.FIRST_SEGMENT_WAIT_MS ?? 2000;
     let timer = null;
-    if (armCloudWait) {
+    if (armCloudWait && !globalThis.IH_OPTIONS_PAGE) {
       timer = setTimeout(() => void globalThis.IH_showCloudWait?.(), waitMs);
     }
     const finishWaitUi = () => {
@@ -23,6 +23,7 @@ globalThis.IH_analyzeRun ||= (function () {
     return new Promise((resolve, reject) => {
       const msg = { type: 'ih-analyze', text };
       if (skipCache) msg.skipCache = true;
+      if (cloudModel) msg.cloudModel = cloudModel;
       chrome.runtime.sendMessage(msg, (res) => {
         if (chrome.runtime.lastError) {
           finishWaitUi();
@@ -66,11 +67,18 @@ globalThis.IH_analyzeRun ||= (function () {
 
   function reportActionFilled(done, total) {
     const n = Number(total);
-    if (!(n > 0)) {
+    const d = Number(done);
+    if (!(n > 0) || !(d > 0)) {
       reportActionState('analyzing', 0);
       return;
     }
-    reportActionState('analyzing', Math.min(ACTION_TILES, Math.floor((Number(done) * ACTION_TILES) / n)));
+    if (n <= 1) {
+      reportActionState('analyzing', ACTION_TILES);
+      return;
+    }
+    // 前 7 段一段一瓦；之后没画完都停在 7 瓦，画完跳满 8 瓦。
+    const filled = d >= n ? ACTION_TILES : Math.min(d, ACTION_TILES - 1);
+    reportActionState('analyzing', Math.min(ACTION_TILES, filled));
   }
 
   /** 一轮结束后上报；未尝试任何段时不发。失败时附带截断后的 error（不含页面 URL/正文）。 */
@@ -183,6 +191,7 @@ globalThis.IH_analyzeRun ||= (function () {
     const win = globalThis.IH_segmentWindow(text, segs, i);
     const { data, inferred, engine, model } = await sendAnalyze(win.requestText, skipCache, {
       armCloudWait,
+      cloudModel: typeof session?.cloudModel === 'string' ? session.cloudModel : '',
     });
     const raw = data?.result?.bpe_strings;
     if (!Array.isArray(raw)) {

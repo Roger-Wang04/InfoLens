@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-ih-i18n="1">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>On-device model setup</title>
+  <title data-i18n>On-device model setup</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -80,25 +80,27 @@
 </head>
 <body>
   <main>
-    <h1>On-device model setup</h1>
-    <p id="lead">When this computer has WebGPU, Gemma 3 270M (q4) can score information density in the browser, so the heatmap does not have to go to the cloud every time. The first run downloads about 800 MB of weights and keeps them here.</p>
+    <h1 data-i18n>On-device model setup</h1>
+    <p id="lead" data-i18n>This downloads about 800 MB (Gemma 3 270M q4) and keeps it on this computer.</p>
     <label class="hub">
-      <span>Download source</span>
-      <select id="model_hub" aria-label="Weight download source">
-        <option value="huggingface">Official</option>
-        <option value="modelscope">China</option>
+      <span data-i18n>Download source</span>
+      <select id="model_hub" aria-label="Weight download source" data-i18n-attr="aria-label">
+        <option value="huggingface" data-i18n>Official</option>
+        <option value="modelscope" data-i18n>China</option>
       </select>
     </label>
     <p id="status"></p>
     <progress id="bar" hidden></progress>
     <div class="actions">
-      <button type="button" id="agree">Agree and prepare</button>
-      <button type="button" id="refuse">Use cloud only</button>
-      <button type="button" id="hide" hidden>Hide</button>
-      <button type="button" id="cancel" hidden>Cancel</button>
-      <button type="button" id="close" hidden>Close</button>
+      <button type="button" id="agree" data-i18n>Download</button>
+      <button type="button" id="refuse" data-i18n>Cancel</button>
+      <button type="button" id="hide" data-i18n hidden>Hide</button>
+      <button type="button" id="cancel" data-i18n hidden>Cancel</button>
+      <button type="button" id="close" data-i18n hidden>Close</button>
     </div>
   </main>
+  <script src="../zh.js"></script>
+  <script src="../i18n.js"></script>
   <script src="state.js"></script>
   <script src="init.js"></script>
 </body>

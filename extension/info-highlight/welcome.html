@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Info Highlight</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #1f1f1f;
+      --muted: #5e5e5e;
+      --bg: #fff;
+      --btn-border: #747775;
+      --bar: #1a73e8;
+      --on-bar: #fff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #e3e3e3;
+        --muted: #c4c7c5;
+        --bg: #1f1f1f;
+        --btn-border: #8e918f;
+        --bar: #8ab4f8;
+        --on-bar: #1f1f1f;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font: 16px/1.45 system-ui, sans-serif;
+      color: var(--fg);
+      background: var(--bg);
+    }
+    main { max-width: 520px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 12px; }
+    p { margin: 0 0 12px; color: var(--fg); }
+    p:last-of-type { margin-bottom: 0; }
+    strong { font-weight: 600; }
+    /* Qwen3-0.6B-Base 把这一语言的整页文案当一篇分析；--ih-p 走默认淡出曲线（下限 25%） */
+    main span {
+      color: color-mix(in srgb, currentColor calc(var(--ih-p, 1) * 100%), transparent);
+    }
+    .actions { margin-top: 20px; }
+    button {
+      font: inherit;
+      font-weight: 500;
+      height: 36px;
+      padding: 0 16px;
+      border: 1px solid var(--bar);
+      border-radius: 16px;
+      background: var(--bar);
+      color: var(--on-bar);
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+  </style>
+</head>
+<body>
+  <main data-ih-lang="en">
+    <h1><span style="--ih-p:.55">How</span><span style="--ih-p:.55"> to</span><span style="--ih-p:.45"> use</span></h1>
+    <p class="guide"><strong><span style="--ih-p:.6">An</span><span style="--ih-p:.4">alyze</span><span style="--ih-p:.9"> once</span><span style="--ih-p:.5">:</span></strong><span style="--ih-p:.95"> pin</span><span style="--ih-p:.4"> the</span><span style="--ih-p:.7"> icon</span><span style="--ih-p:.3"> to</span><span style="--ih-p:.25"> the</span><span style="--ih-p:.55"> toolbar</span><span style="--ih-p:.75"> →</span><span style="--ih-p:.4"> click</span></p>
+    <p class="guide"><strong><span style="--ih-p:.7">Always</span><span style="--ih-p:.45"> analyze</span><span style="--ih-p:.6"> a</span><span style="--ih-p:.6"> site</span><span style="--ih-p:.25">:</span></strong><span style="--ih-p:.45"> right</span><span style="--ih-p:.25">-click</span><span style="--ih-p:.3"> the</span><span style="--ih-p:.3"> icon</span><span style="--ih-p:.55"> or</span><span style="--ih-p:.35"> the</span><span style="--ih-p:.4"> page</span><span style="--ih-p:.3"> →</span><span style="--ih-p:.65"> “</span><span style="--ih-p:.3">Always</span><span style="--ih-p:.25"> analyze</span><span style="--ih-p:.3"> this</span><span style="--ih-p:.25"> site</span><span style="--ih-p:.25">”</span></p>
+    <p class="guide"><strong><span style="--ih-p:.6">More</span><span style="--ih-p:.35"> options</span><span style="--ih-p:.25">:</span></strong><span style="--ih-p:.3"> right</span><span style="--ih-p:.25">-click</span><span style="--ih-p:.25"> the</span><span style="--ih-p:.25"> icon</span><span style="--ih-p:.25"> or</span><span style="--ih-p:.25"> the</span><span style="--ih-p:.25"> page</span><span style="--ih-p:.25"> →</span><span style="--ih-p:.25"> “</span><span style="--ih-p:.35">Options</span><span style="--ih-p:.25">”</span></p>
+    <div class="actions">
+      <button type="button" data-close><span style="--ih-p:.85">Got</span><span style="--ih-p:.3"> it</span></button>
+    </div>
+  </main>
+  <main data-ih-lang="zh" hidden>
+    <h1><span style="--ih-p:.9">怎么</span><span style="--ih-p:.5">用</span></h1>
+    <p class="guide"><strong><span style="--ih-p:.65">分析</span><span style="--ih-p:.7">一次</span><span style="--ih-p:.7">：</span></strong><span style="--ih-p:.65">把</span><span style="--ih-p:.9">图标</span><span style="--ih-p:.75">固定</span><span style="--ih-p:.4">到</span><span style="--ih-p:.6">工具</span><span style="--ih-p:.25">栏</span><span style="--ih-p:.9"> →</span><span style="--ih-p:.55">点击</span></p>
+    <p class="guide"><strong><span style="--ih-p:.85">总是</span><span style="--ih-p:.75">分析</span><span style="--ih-p:.5">一个</span><span style="--ih-p:.8">网站</span><span style="--ih-p:.35">：</span></strong><span style="--ih-p:.5">右</span><span style="--ih-p:.25">键</span><span style="--ih-p:.6">图标</span><span style="--ih-p:.55">或</span><span style="--ih-p:.55">页面</span><span style="--ih-p:.3"> →</span><span style="--ih-p:.6"> “</span><span style="--ih-p:.8">总是</span><span style="--ih-p:.25">分析</span><span style="--ih-p:.4">此</span><span style="--ih-p:.3">网站</span><span style="--ih-p:.3">”</span></p>
+    <p class="guide"><strong><span style="--ih-p:.7">更多</span><span style="--ih-p:.45">选项</span><span style="--ih-p:.25">：</span></strong><span style="--ih-p:.3">右</span><span style="--ih-p:.25">键</span><span style="--ih-p:.25">图标</span><span style="--ih-p:.25">或</span><span style="--ih-p:.25">页面</span><span style="--ih-p:.25"> →</span><span style="--ih-p:.25"> “</span><span style="--ih-p:.45">选项</span><span style="--ih-p:.3">”</span></p>
+    <div class="actions">
+      <button type="button" data-close><span style="--ih-p:.8">知道了</span></button>
+    </div>
+  </main>
+  <script src="zh.js"></script>
+  <script src="i18n.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

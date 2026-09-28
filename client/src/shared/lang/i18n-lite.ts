@@ -12,16 +12,26 @@ import { translations } from './translations';
 import { lsGet, lsSet } from '../storage/localStorageHelpers';
 
 export type Language = 'en' | 'zh';
+/** 用户选择。auto 跟随浏览器语言。 */
+export type LanguagePreference = 'auto' | Language;
 
-// 当前语言状态（从 localStorage 恢复，默认为 en）
-let currentLanguage: Language = 'en';
+function browserLanguage(): Language {
+    const nav = (typeof navigator !== 'undefined' && navigator.language) || '';
+    return /^zh/i.test(nav) ? 'zh' : 'en';
+}
 
-// 初始化：从 localStorage 读取语言设置
+function resolveLanguage(pref: LanguagePreference): Language {
+    return pref === 'auto' ? browserLanguage() : pref;
+}
+
+// 未写入过时为自动。已选英文或中文的保持原选择。
+let languagePreference: LanguagePreference = 'auto';
 const LANG_STORAGE_KEY = 'app_language';
 const storedLang = lsGet(LANG_STORAGE_KEY);
-if (storedLang === 'en' || storedLang === 'zh') {
-    currentLanguage = storedLang;
+if (storedLang === 'en' || storedLang === 'zh' || storedLang === 'auto') {
+    languagePreference = storedLang;
 }
+let currentLanguage: Language = resolveLanguage(languagePreference);
 
 // 跨标签页语言同步：监听其他页面对语言的修改
 const storageListener = (event: StorageEvent) => {
@@ -29,7 +39,7 @@ const storageListener = (event: StorageEvent) => {
         return;
     }
     const newLang = event.newValue;
-    if (newLang === 'en' || newLang === 'zh') {
+    if (newLang === 'en' || newLang === 'zh' || newLang === 'auto') {
         // 语言变化时刷新页面以应用新语言
         // （因为 data-i18n 只在页面加载时执行一次）
         location.reload();
@@ -87,12 +97,16 @@ export function getCurrentLanguage(): Language {
     return currentLanguage;
 }
 
+export function getLanguagePreference(): LanguagePreference {
+    return languagePreference;
+}
+
 /**
- * 设置语言
- * @param lang 目标语言
+ * 设置语言。auto 按当前浏览器语言解析后再用于页面文案。
  */
-export function setLanguage(lang: Language): void {
-    currentLanguage = lang;
+export function setLanguage(lang: LanguagePreference): void {
+    languagePreference = lang;
+    currentLanguage = resolveLanguage(lang);
     lsSet(LANG_STORAGE_KEY, lang);
 }
 

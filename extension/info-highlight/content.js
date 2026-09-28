@@ -31,6 +31,12 @@
   if (!globalThis.IH_analyzeRun) {
     throw new Error('IH_analyzeRun missing — inject analyzeRun.js before content.js');
   }
+  if (!globalThis.IH_autoNudge) {
+    throw new Error('IH_autoNudge missing — inject auto-nudge.js before content.js');
+  }
+  if (!globalThis.IH_autoSites) {
+    throw new Error('IH_autoSites missing — inject auto-sites.js before content.js');
+  }
 
   const R = globalThis.IH_analyzeRun;
   /** 自动分析：complete 之后还可能晚到正文，开跑后这一窗里对拍 */
@@ -40,7 +46,7 @@
   let active = false;
   /** 这份抽字是否已过晚到窗口（手点开跑即稳定；自动分析要等对拍窗结束） */
   let extractStable = false;
-  /** @type {{ mapped: { text: string, pieces: unknown[] }, segs: { start: number, end: number, text: string }[], next: number, painted: number, skipCache?: boolean } | null} */
+  /** @type {{ mapped: { text: string, pieces: unknown[] }, segs: { start: number, end: number, text: string }[], next: number, painted: number, skipCache?: boolean, cloudModel?: string } | null} */
   let session = null;
 
   function clearAll() {
@@ -66,7 +72,8 @@
 
   function continuePaused() {
     if (busy || !session) return;
-    void runBatch(gen += 1, false, session.skipCache);
+    session.armFirstAnalyze = true;
+    void runBatch(gen += 1, false, session.skipCache, session.cloudModel);
   }
 
   function pageText() {
@@ -77,9 +84,11 @@
     }
   }
 
-  async function openSession(skip) {
+  async function openSession(skip, cloudModel) {
+    const pinned = cloudModel || session?.cloudModel || '';
     session = await R.beginSession(globalThis.IH_extractPage(), 'No article text');
     session.skipCache = skip;
+    if (pinned) session.cloudModel = pinned;
     globalThis.IH_tokenTip.bind(session.mapped);
     if (extractStable) globalThis.IH_watchHighlightLive();
   }
@@ -96,11 +105,14 @@
     return lastAlignErr;
   }
 
-  async function runBatch(myGen, settle, skipCache) {
+  async function runBatch(myGen, settle, skipCache, cloudModel) {
     const still = () => myGen === gen;
     const skip = !!skipCache;
+    const pinned = typeof cloudModel === 'string' ? cloudModel : '';
     busy = true;
     R.reportActionState('analyzing');
+    // 手点刚开跑、人还在等。继续下一段和自动分析都不计。
+    if (!settle && !session) void globalThis.IH_autoNudge.offer(location.href);
     await whenComplete();
     await globalThis.IH_prefsReady;
     if (!still()) return;
@@ -112,8 +124,6 @@
     };
     const fail = (err) => {
       clearAll();
-      active = true;
-      R.reportActionState('on');
       return globalThis.IH_showError(err?.message || err);
     };
     const idle = () => {
@@ -128,7 +138,7 @@
       : { fail, idle, onFailed };
     const job = async (report) => {
       if (!settle) extractStable = true;
-      if (!session) await openSession(skip);
+      if (!session) await openSession(skip, pinned);
       const opts = { onTokens: (tokens) => globalThis.IH_tokenTip.add(tokens), skipCache: skip };
       const paintTo = async (to) => {
         const err = await R.paintRange(session, session.next, to, still, opts, report);
@@ -174,6 +184,13 @@
     idle();
   }
 
+  function retryAnalyze() {
+    gen += 1;
+    busy = false;
+    clearAll();
+    void runBatch(gen, false, false);
+  }
+
   function setEnabled(on) {
     if (on) {
       if (busy || active) return;
@@ -191,13 +208,14 @@
     setEnabled(!(busy || active));
   }
 
-  function force() {
+  function force(cloudModel) {
     if (busy) {
       alert(R.FORCE_BUSY_MSG);
       return;
     }
     if (active) clearAll();
-    void runBatch(gen += 1, false, true);
+    const pinned = typeof cloudModel === 'string' ? cloudModel : '';
+    void runBatch(gen += 1, false, true, pinned);
   }
 
   function isLive() {
@@ -218,5 +236,6 @@
 
   // SYNC: background.js → pageCsPeek 的 data-ih-cs
   document.documentElement.setAttribute('data-ih-cs', '');
+  globalThis.IH_retryAnalyze = retryAnalyze;
   window.__IH_DEMO__ = { toggle, start, force, isLive, setEnabled };
 })();

@@ -1,6 +1,7 @@
 /**
- * 高亮色阶、两档密度、绘制形式：纯函数 + storage 默认值。
+ * 高亮色阶、两档密度、绘制形式。
  * RGB 与站点 SurprisalColorConfig 同步；100% 强度的 alpha 见 PAINT_CAP。
+ * storage 默认值在 optionDefaults.js。
  */
 globalThis.IH_highlightStyle ||= (function () {
   const TOKEN_LEVELS = 16;
@@ -19,7 +20,11 @@ globalThis.IH_highlightStyle ||= (function () {
   const FADE_MIN_MAX = 50;
   /** 勾选后，整页文字里惊讶度最高的这一比例落到最强档 */
   const KEY_FADE_NORM = 'ih_fade_norm';
-  const FADE_NORM_TOP = 0.2;
+  /** 落到最强档的文字比例，1–50%，默认 10% */
+  const KEY_FADE_NORM_PCT = 'ih_fade_norm_pct';
+  const FADE_NORM_PCT_MIN = 1;
+  const FADE_NORM_PCT_MAX = 50;
+  const FADE_NORM_PCT_DEFAULT = 10;
   const KEY_PAINT_STYLE = 'ih_paint_style';
   const KEY_HIGHLIGHT_COLOR = 'ih_highlight_color';
   const KEY_TEXT_COLOR = 'ih_text_color';
@@ -28,7 +33,7 @@ globalThis.IH_highlightStyle ||= (function () {
   const PAINT_UNDERLINE = 'underline';
   const PAINT_TEXT = 'text';
   const PAINT_FADE = 'fade';
-  const PAINT_STYLES = Object.freeze([PAINT_BLOCK, PAINT_UNDERLINE, PAINT_TEXT, PAINT_FADE]);
+  const PAINT_STYLES = Object.freeze([PAINT_FADE, PAINT_TEXT, PAINT_UNDERLINE, PAINT_BLOCK]);
   /** 表面画不了所选形式时回退。PDF 色块会盖住 canvas 字形；字色、淡去都改不了 canvas。 */
   const PAINT_FALLBACK = Object.freeze({
     pdf: Object.freeze({
@@ -53,18 +58,6 @@ globalThis.IH_highlightStyle ||= (function () {
   /** PDF overlay：rect.bottom 低于基线，相对盒底再上移（16px 时 1px） */
   const UNDERLINE_OVERLAY_LIFT = 0.0625;
 
-  /** chrome.storage.local 默认；强度整数，运行时 (pct/100)*PAINT_CAP[resolve 后形式] → maxAlpha */
-  const STORAGE_DEFAULTS = {
-    [KEY_TWO_TIER]: false,
-    [KEY_THRESHOLD_PCT]: 25,
-    [KEY_MAX_ALPHA_DEPTH]: 100,
-    [KEY_FADE_MIN_PCT]: FADE_MIN_DEFAULT,
-    [KEY_FADE_NORM]: false,
-    [KEY_PAINT_STYLE]: PAINT_BLOCK,
-    [KEY_HIGHLIGHT_COLOR]: 0,
-    [KEY_TEXT_COLOR]: 'red',
-  };
-
   function clampInt(n, lo, hi) {
     const x = Math.round(Number(n));
     if (!Number.isFinite(x)) return lo;
@@ -81,6 +74,10 @@ globalThis.IH_highlightStyle ||= (function () {
 
   function clampFadeMinPct(n) {
     return clampInt(n, 0, FADE_MIN_MAX);
+  }
+
+  function clampFadeNormPct(n) {
+    return clampInt(n, FADE_NORM_PCT_MIN, FADE_NORM_PCT_MAX);
   }
 
   function capAlpha(paintStyle) {
@@ -120,8 +117,12 @@ globalThis.IH_highlightStyle ||= (function () {
     return `${clampFadeMinPct(pct)}%`;
   }
 
+  function formatFadeNormLabel(pct) {
+    return globalThis.IH_i18n.tr('{pct}% at full highlight', { pct: clampFadeNormPct(pct) });
+  }
+
   function normalizePaintStyle(v) {
-    return PAINT_STYLES.includes(v) ? v : PAINT_BLOCK;
+    return PAINT_STYLES.includes(v) ? v : PAINT_FADE;
   }
 
   function parseRgbParts(rgb) {
@@ -170,7 +171,6 @@ globalThis.IH_highlightStyle ||= (function () {
   const HUE_RED = Math.round(RED_HSL.h);
   const HUE_MIN = 0;
   const HUE_MAX = 359;
-  STORAGE_DEFAULTS[KEY_HIGHLIGHT_COLOR] = HUE_RED;
 
   /** 色相轴上的典型色（约 30° 一档）；琥珀/金并进橙与黄，玫红并进红。 */
   const COLOR_HUE = Object.freeze({
@@ -312,12 +312,13 @@ globalThis.IH_highlightStyle ||= (function () {
   }
 
   /**
-   * 按文字权重从高到低累加，跨过前 FADE_NORM_TOP 的那一档 bits。
+   * 按文字权重从高到低累加，跨过前 topPct% 的那一档 bits。
    * 并列时最强档会略多于这一比例。没有正权重则 null。
    * @param {Array<{ bits: number, weight: number }>} samples
+   * @param {number} [topPct] 1–50，缺省为 FADE_NORM_PCT_DEFAULT
    * @returns {number | null}
    */
-  function fadeNormScaleBits(samples) {
+  function fadeNormScaleBits(samples, topPct) {
     const rows = [];
     let total = 0;
     for (const s of samples) {
@@ -329,7 +330,7 @@ globalThis.IH_highlightStyle ||= (function () {
     }
     if (!(total > 0)) return null;
     rows.sort((a, b) => b.bits - a.bits);
-    const need = total * FADE_NORM_TOP;
+    const need = total * (clampFadeNormPct(topPct ?? FADE_NORM_PCT_DEFAULT) / 100);
     let acc = 0;
     for (const row of rows) {
       acc += row.weight;
@@ -351,29 +352,22 @@ globalThis.IH_highlightStyle ||= (function () {
     return m + (1 - m) * t;
   }
 
-  /** @param {Record<string, unknown>} raw storage get 结果 */
+  /** @param {Record<string, unknown>} raw storage get 结果；缺键走 optionDefaults.js */
   function normalizePrefs(raw) {
+    const pick = globalThis.IH_optionStored;
+    if (typeof pick !== 'function') {
+      throw new Error('IH_optionStored missing — inject optionDefaults.js');
+    }
     return {
-      twoTier: !!(raw?.[KEY_TWO_TIER] ?? STORAGE_DEFAULTS[KEY_TWO_TIER]),
-      thresholdPct: clampThresholdPct(
-        raw?.[KEY_THRESHOLD_PCT] ?? STORAGE_DEFAULTS[KEY_THRESHOLD_PCT],
-      ),
-      maxAlphaDepth: clampMaxAlphaDepth(
-        raw?.[KEY_MAX_ALPHA_DEPTH] ?? STORAGE_DEFAULTS[KEY_MAX_ALPHA_DEPTH],
-      ),
-      fadeMinPct: clampFadeMinPct(
-        raw?.[KEY_FADE_MIN_PCT] ?? STORAGE_DEFAULTS[KEY_FADE_MIN_PCT],
-      ),
-      fadeNorm: !!(raw?.[KEY_FADE_NORM] ?? STORAGE_DEFAULTS[KEY_FADE_NORM]),
-      paintStyle: normalizePaintStyle(
-        raw?.[KEY_PAINT_STYLE] ?? STORAGE_DEFAULTS[KEY_PAINT_STYLE],
-      ),
-      highlightColor: normalizeHighlightColor(
-        raw?.[KEY_HIGHLIGHT_COLOR] ?? STORAGE_DEFAULTS[KEY_HIGHLIGHT_COLOR],
-      ),
-      textColor: normalizeTextColor(
-        raw?.[KEY_TEXT_COLOR] ?? STORAGE_DEFAULTS[KEY_TEXT_COLOR],
-      ),
+      twoTier: !!pick(KEY_TWO_TIER, raw?.[KEY_TWO_TIER]),
+      thresholdPct: clampThresholdPct(pick(KEY_THRESHOLD_PCT, raw?.[KEY_THRESHOLD_PCT])),
+      maxAlphaDepth: clampMaxAlphaDepth(pick(KEY_MAX_ALPHA_DEPTH, raw?.[KEY_MAX_ALPHA_DEPTH])),
+      fadeMinPct: clampFadeMinPct(pick(KEY_FADE_MIN_PCT, raw?.[KEY_FADE_MIN_PCT])),
+      fadeNorm: !!pick(KEY_FADE_NORM, raw?.[KEY_FADE_NORM]),
+      fadeNormPct: clampFadeNormPct(pick(KEY_FADE_NORM_PCT, raw?.[KEY_FADE_NORM_PCT])),
+      paintStyle: normalizePaintStyle(pick(KEY_PAINT_STYLE, raw?.[KEY_PAINT_STYLE])),
+      highlightColor: normalizeHighlightColor(pick(KEY_HIGHLIGHT_COLOR, raw?.[KEY_HIGHLIGHT_COLOR])),
+      textColor: normalizeTextColor(pick(KEY_TEXT_COLOR, raw?.[KEY_TEXT_COLOR])),
     };
   }
 
@@ -448,7 +442,10 @@ globalThis.IH_highlightStyle ||= (function () {
     FADE_MIN_DEFAULT,
     FADE_MIN_MAX,
     KEY_FADE_NORM,
-    FADE_NORM_TOP,
+    KEY_FADE_NORM_PCT,
+    FADE_NORM_PCT_MIN,
+    FADE_NORM_PCT_MAX,
+    FADE_NORM_PCT_DEFAULT,
     KEY_PAINT_STYLE,
     KEY_HIGHLIGHT_COLOR,
     KEY_TEXT_COLOR,
@@ -463,10 +460,10 @@ globalThis.IH_highlightStyle ||= (function () {
     UNDERLINE_THICKNESS,
     UNDERLINE_OFFSET,
     UNDERLINE_OVERLAY_LIFT,
-    STORAGE_DEFAULTS,
     clampThresholdPct,
     clampMaxAlphaDepth,
     clampFadeMinPct,
+    clampFadeNormPct,
     capAlpha,
     depthToMaxAlpha,
     watchColorScheme,
@@ -474,6 +471,7 @@ globalThis.IH_highlightStyle ||= (function () {
     formatThresholdLabel,
     formatDepthLabel,
     formatFadeLabel,
+    formatFadeNormLabel,
     normalizePaintStyle,
     normalizeHighlightHue,
     normalizeHighlightColor,

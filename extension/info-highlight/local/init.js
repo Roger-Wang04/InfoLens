@@ -1,4 +1,5 @@
 (() => {
+  const { tr } = globalThis.IH_i18n;
   const agreeBtn = document.getElementById('agree');
   const refuseBtn = document.getElementById('refuse');
   const hideBtn = document.getElementById('hide');
@@ -15,17 +16,11 @@
     throw new Error('IH_localState missing — inject state.js before init.js');
   }
 
-  const LEAD_LOCAL_ONLY =
-    'You chose on-device analysis only, so the page is not uploaded. The first run downloads about 800 MB of weights (Gemma 3 270M q4) and keeps them here.';
-
   let localOnly = false;
   let wantProgress = false;
   globalThis.IH_localState.get().then((st) => {
     localOnly = st.pref === globalThis.IH_localState.PREF_LOCAL;
     hubSel.value = globalThis.IH_localState.normalizeHub(st.hub);
-    if (!localOnly) return;
-    refuseBtn.textContent = 'Cancel';
-    leadEl.textContent = LEAD_LOCAL_ONLY;
   });
 
   hubSel.addEventListener('change', () => {
@@ -89,17 +84,19 @@
       bar.hidden = false;
       bar.max = info.total;
       bar.value = info.loaded;
-      setStatus(`Downloading ${file} · ${formatBytes(info.loaded)} / ${formatBytes(info.total)}`);
+      setStatus(tr('Downloading {file} · {loaded} / {total}', {
+        file, loaded: formatBytes(info.loaded), total: formatBytes(info.total),
+      }));
       return;
     }
     if (status === 'initiate' || status === 'download') {
       bar.hidden = false;
       bar.removeAttribute('value');
-      setStatus(file ? `Preparing ${file}` : 'Preparing download');
+      setStatus(file ? tr('Preparing {file}', { file }) : tr('Preparing download'));
       return;
     }
     if (status === 'done') {
-      setStatus(file ? `Got ${file}` : 'Download complete');
+      setStatus(file ? tr('Got {file}', { file }) : tr('Download complete'));
     }
   }
 
@@ -111,19 +108,19 @@
     agreeBtn.disabled = true;
     refuseBtn.disabled = true;
     hubSel.disabled = true;
-    setStatus('Preparing on-device model…');
+    setStatus(tr('Preparing on-device model…'));
     try {
       const granted = await chrome.permissions.request({
         origins: globalThis.IH_localState.hubOrigins(hubSel.value),
       });
-      if (!granted) throw new Error('Download was not authorized');
+      if (!granted) throw new Error(tr('Download was not authorized'));
       await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({ type: 'ih-local-set-hub', hub: hubSel.value }, (res) => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
             return;
           }
-          if (!res?.ok) reject(new Error(res?.error || 'Failed to switch download source'));
+          if (!res?.ok) reject(new Error(res?.error || tr('Failed to switch download source')));
           else resolve(res);
         });
       });
@@ -140,29 +137,24 @@
         return;
       }
       if (res?.cancelled) {
-        setStatus('Download stopped.');
+        setStatus(tr('Download stopped.'));
         restoreActions();
         return;
       }
       if (!res?.ok) {
-        setStatus(res?.error || 'Setup failed');
+        setStatus(res?.error || tr('Setup failed'));
         restoreActions();
         return;
       }
       setStatus(localOnly
-        ? 'On-device model is ready. You can close this window. Later toolbar clicks will analyze on this device only.'
-        : 'On-device model is ready. You can close this window. Later toolbar clicks will prefer this device.');
+        ? tr('On-device model is ready. You can close this window. Later toolbar clicks will analyze on this device only.')
+        : tr('On-device model is ready. You can close this window. Later toolbar clicks will prefer this device.'));
       doneButtons();
     });
   });
 
   refuseBtn.addEventListener('click', () => {
-    agreeBtn.disabled = true;
-    refuseBtn.disabled = true;
-    hubSel.disabled = true;
-    chrome.runtime.sendMessage({ type: 'ih-local-refuse' }, () => {
-      window.close();
-    });
+    window.close();
   });
 
   hideBtn.addEventListener('click', () => window.close());
@@ -170,10 +162,10 @@
   cancelBtn.addEventListener('click', () => {
     cancelBtn.disabled = true;
     wantProgress = false;
-    setStatus('Stopping download…');
+    setStatus(tr('Stopping download…'));
     chrome.runtime.sendMessage({ type: 'ih-local-cancel-init' }, (res) => {
       if (chrome.runtime.lastError || !res?.ok) {
-        setStatus(chrome.runtime.lastError?.message || res?.error || 'Failed to stop download');
+        setStatus(chrome.runtime.lastError?.message || res?.error || tr('Failed to stop download'));
         cancelBtn.disabled = false;
         wantProgress = true;
       }

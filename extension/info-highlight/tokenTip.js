@@ -1,7 +1,7 @@
 /**
  * Token 悬停面板：网页 token 只绑 ::highlight、没有 DOM 可挂事件，
  * 故由 caretPositionFromPoint 反查指针下的字，再按码点偏移二分到 token。
- * 内容取站点 tooltip 的精简版：token 文字 + 信息量一行 + Top-K 条形图；底部为本轮 result.model，有硬件时下一行是去掉商标和主频后的名字。
+ * 内容取站点 tooltip 的精简版：token 文字 + 信息量一行 + Top-K 条形图；底部为本轮 result.model，有硬件时下一行是去掉商标和主频后的名字，再下一行提示去选项里关。
  * SYNC: client/src/shared/vis/ToolTip.ts → 行文案、d3.format('.3g') 数值格式与右下偏移
  * SYNC: client/src/shared/cross/topkChartUtils.ts → 行结构、省略行、条形与百分比
  */
@@ -10,12 +10,7 @@ globalThis.IH_tokenTip ||= (function () {
   /** 面板与命中字之间的留白（px） */
   const OFFSET_PX = 15;
   const DISPLAY_TOPK = 10;
-  /**
-   * 站点是正文 12pt、tooltip 9pt；插件的正文是宿主页的，故按命中处字号乘同一比例。
-   * SYNC: client/src/css/components/_lmf-readout.scss → lmf-readout-text 的 12pt
-   */
-  const TIP_FONT_RATIO = 9 / 12;
-  /** 面板内尺寸一律以 em 计，随字号等比；换算基准为站点的 9pt = 12px */
+  /** 面板内尺寸一律以 em 计，基准为站点 tooltip 的 9pt（=12px），不跟命中处字号走 */
   const MAX_BAR_WIDTH_EM = 5;
   const BAR_CELL_WIDTH_EM = 9.17;
 
@@ -36,7 +31,7 @@ globalThis.IH_tokenTip ||= (function () {
   const TIP_CSS = `
 .panel {
   position: absolute;
-  /* 站点 .tooltip 的 16rem（=256px）按 9pt 折成 em，随字号同比放缩 */
+  /* 站点 .tooltip 的 16rem（=256px）按 9pt 折成 em */
   max-width: min(21.3em, calc(100vw - 24px));
   padding: 0.417em;
   box-sizing: border-box;
@@ -45,7 +40,8 @@ globalThis.IH_tokenTip ||= (function () {
   background: #3c4043;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.28);
   color: #e8eaed;
-  font: 500 1em/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* SYNC: client/src/css/pages/_app-pages.scss → .tooltip 的 9pt；不跟宿主页字号 */
+  font: 500 9pt/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   user-select: none;
   overflow-wrap: break-word;
 }
@@ -149,14 +145,17 @@ globalThis.IH_tokenTip ||= (function () {
   let modelName = '';
   /** result.device 去掉商标和主频；缓存命中不带 device，沿用这一轮已有的 */
   let deviceName = '';
-  /** options.js 的 show_token_tip；默认开 */
-  let enabled = true;
-  chrome.storage?.local?.get({ show_token_tip: true }, (res) => {
-    enabled = res?.show_token_tip !== false;
+  if (typeof globalThis.IH_optionStored !== 'function') {
+    throw new Error('IH_optionStored missing — inject optionDefaults.js first');
+  }
+  const optionStored = globalThis.IH_optionStored;
+  let enabled = globalThis.IH_optionDefaults.show_token_tip;
+  chrome.storage?.local?.get(globalThis.IH_optionDefaults, (res) => {
+    enabled = optionStored('show_token_tip', res?.show_token_tip);
   });
   chrome.storage?.onChanged?.addListener((changes) => {
     if ('show_token_tip' in changes) {
-      enabled = changes.show_token_tip.newValue !== false;
+      enabled = optionStored('show_token_tip', changes.show_token_tip.newValue);
       if (!enabled) hide();
     }
   });
@@ -290,10 +289,8 @@ globalThis.IH_tokenTip ||= (function () {
     parent.appendChild(table);
   }
 
-  /** @param {Element} textEl 命中字所在元素，面板字号按它的正文字号折算 */
-  function render(tok, textEl) {
+  function render(tok) {
     const el = ensurePanel();
-    host.style.fontSize = `${parseFloat(getComputedStyle(textEl).fontSize) * TIP_FONT_RATIO}px`;
     el.replaceChildren();
     const head = document.createElement('div');
     head.className = 'token';
@@ -302,13 +299,15 @@ globalThis.IH_tokenTip ||= (function () {
     const bits = globalThis.IH_tokenBits(tok);
     if (bits != null) appendRow(el, 'information:', `${sig3(bits)} bits`);
     appendTopk(el, tok);
+    const foot = document.createElement('div');
+    foot.className = 'model';
     if (modelName) {
-      const foot = document.createElement('div');
-      foot.className = 'model';
       foot.textContent = modelName;
       if (deviceName) foot.append(document.createElement('br'), `@ ${deviceName}`);
-      el.appendChild(foot);
+      foot.append(document.createElement('br'));
     }
+    foot.append(document.createElement('br'), '[Options - Hover for details]');
+    el.appendChild(foot);
   }
 
   /** 默认贴命中字的右下；越界则翻到左 / 上 */
@@ -396,7 +395,7 @@ globalThis.IH_tokenTip ||= (function () {
     if (!tok) return hide();
     if (tok === shown) return;
     shown = tok;
-    render(tok, node.parentElement);
+    render(tok);
     // 贴 token 的框而非命中的那个字，指针在同一 token 上移动时面板不动
     place(drawBoxes(idx.cpToUtf16(tok.offset[0]), idx.cpToUtf16(tok.offset[1])) ?? hit.rect);
   }

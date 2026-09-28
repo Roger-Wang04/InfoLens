@@ -15,7 +15,7 @@
   let generation = 0;
   let busy = false;
   let enabled = true;
-  /** @type {{ mapped: { text: string, pieces: unknown[], root: Element }, segs: { start: number, end: number, text: string }[], next: number, painted: number, tokensBySeg?: unknown[][], skipCache?: boolean } | null} */
+  /** @type {{ mapped: { text: string, pieces: unknown[], root: Element }, segs: { start: number, end: number, text: string }[], next: number, painted: number, tokensBySeg?: unknown[][], skipCache?: boolean, cloudModel?: string } | null} */
   let session = null;
 
   function extractPdfPage() {
@@ -35,7 +35,8 @@
 
   function continuePaused() {
     if (busy || !session || !enabled) return;
-    void runBatch(generation += 1, session.skipCache);
+    session.armFirstAnalyze = true;
+    void runBatch(generation += 1, session.skipCache, session.cloudModel);
   }
 
   async function finish(lastAlignErr, report) {
@@ -58,25 +59,28 @@
       },
       fail(err) {
         clear();
-        R.reportActionState('on');
+        enabled = false;
+        R.reportActionState('off');
         return globalThis.IH_showError(err?.message || err);
       },
       idle() {
-        busy = false;
         if (!still()) return;
+        busy = false;
         if (!enabled) R.reportActionState('off');
         else if (session) R.reportActionState('on');
       },
     }, work);
   }
 
-  async function runBatch(myGeneration, skipCache) {
+  async function runBatch(myGeneration, skipCache, cloudModel) {
     const still = () => myGeneration === generation;
     const skip = !!skipCache;
+    const pinned = typeof cloudModel === 'string' ? cloudModel : '';
     await job(myGeneration, async (report) => {
       if (!session) {
         session = await R.beginSession(extractPdfPage(), 'PDF has no text to analyze');
         session.skipCache = skip;
+        if (pinned) session.cloudModel = pinned;
       }
       const end = Math.min(session.next + R.MAX_SEGMENTS_PER_RUN, session.segs.length);
       const lastAlignErr = await R.paintRange(
@@ -97,8 +101,9 @@
     } catch (error) {
       if (!still()) return;
       clear();
+      enabled = false;
       await globalThis.IH_showError(error?.message || error);
-      R.reportActionState('on');
+      R.reportActionState('off');
       return;
     }
     if (!session || mapped.text !== session.mapped.text) {
@@ -123,12 +128,19 @@
     } catch (error) {
       if (!still()) return;
       clear();
+      enabled = false;
       await globalThis.IH_showError(error?.message || error);
-      R.reportActionState('on');
+      R.reportActionState('off');
       return;
     }
     if (!still()) return;
     R.reportActionState('on');
+  }
+
+  function retryAnalyze() {
+    enabled = true;
+    busy = false;
+    restart();
   }
 
   function restart() {
@@ -170,7 +182,8 @@
         } else {
           enabled = true;
           clear();
-          void runBatch(generation += 1, true);
+          const pinned = typeof message.cloudModel === 'string' ? message.cloudModel : '';
+          void runBatch(generation += 1, true, pinned);
         }
       } else {
         toggle();
@@ -180,6 +193,7 @@
     return true;
   });
 
+  globalThis.IH_retryAnalyze = retryAnalyze;
   window.addEventListener('il-pdf-ready', restart);
   window.addEventListener('il-pdf-rerendered', onRerendered);
   if (window.__IL_PDF_DATA__) restart();

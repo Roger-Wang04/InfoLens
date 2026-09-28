@@ -24,7 +24,8 @@ from model_paths import (
 
 ENV_HELP = """
 环境变量:
-  INFORADAR_ADMIN_TOKEN  管理员 token，用于 check_admin、切换模型、demo 管理；未设置则禁用
+  INFORADAR_ADMIN_TOKEN   管理员 token，用于 check_admin、切换模型、demo 管理；未设置则禁用
+  INFORADAR_FACADE_TOKEN  门面密钥（请求头 X-Facade-Token）。/api 与 /demo 默认必须携带；--no-facade-token 关闭校验
   FORCE_CPU=1           强制使用 CPU，忽略 CUDA/MPS
   FORCE_INT8=1          启用 INT8 量化（CPU/CUDA 支持，MPS 不支持）
   CPU_FORCE_BFLOAT16=1  CPU 使用 bfloat16
@@ -72,6 +73,11 @@ def _parse_args():
         help="管理员 demo 根目录（需有效 X-Admin-Token 才使用，可含不公开 demo）；"
         "普通用户始终使用 data/demo/public",
     )
+    parser.add_argument(
+        "--no-facade-token",
+        action="store_true",
+        help="不校验门面密钥（本地调试）",
+    )
     parser.add_argument("--no_cors", action="store_true")
     parser.add_argument(
         "--no_auto_load",
@@ -112,8 +118,10 @@ def _load_and_run(args):
 
     import server
     from server import app
+    from backend.platform.facade_guard import register_facade_guard
     from backend.platform.worker_guards import register_worker_guards
 
+    register_facade_guard(app, no_facade_token=args.no_facade_token)
     register_worker_guards(app)
 
     from backend.platform.app_context import AppContext
@@ -162,6 +170,9 @@ def main():
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(2)
+    from backend.platform.facade_guard import ensure_facade_token
+
+    ensure_facade_token(no_facade_token=args.no_facade_token)
     _load_and_run(args)
 
 

@@ -87,8 +87,13 @@ test('相同请求命中缓存后按当前文档位置重新映射', async () =>
   runInThisContext(readFileSync(join(dir, '../../shared/page/progressAxis.js'), 'utf8'), {
     filename: 'progressAxis.js',
   });
+  runInThisContext(readFileSync(join(dir, '../zh.js'), 'utf8'), { filename: 'zh.js' });
+  runInThisContext(readFileSync(join(dir, '../i18n.js'), 'utf8'), { filename: 'i18n.js' });
   runInThisContext(readFileSync(join(dir, '../highlightStyle.js'), 'utf8'), {
     filename: 'highlightStyle.js',
+  });
+  runInThisContext(readFileSync(join(dir, '../optionDefaults.js'), 'utf8'), {
+    filename: 'optionDefaults.js',
   });
   runInThisContext(readFileSync(join(dir, '../wordMerge.js'), 'utf8'), {
     filename: 'wordMerge.js',
@@ -128,20 +133,27 @@ test('空数组也写；再读不打网', async () => {
   assert.equal(calls, 1);
 });
 
-test('skip：已有缓存也打网并覆盖；失败则原条留下', async () => {
+test('skip：不读也不写；失败则原条留下', async () => {
   mockLocal();
+  let calls = 0;
+  const fresh = await cache.tokens('once', async () => {
+    calls += 1;
+    return [tok(0, 2)];
+  }, { skip: true });
+  assert.deepEqual(fresh, [live(0, 2)]);
+  await cache.tokens('once', async () => {
+    calls += 1;
+    return [tok(0, 2)];
+  });
+  assert.equal(calls, 2);
+
   await cache.tokens('t0', async () => [tok(0, 1, 0.1)]);
   await assert.rejects(() =>
     cache.tokens('t0', async () => {
       throw new Error('network');
     }, { skip: true })
   );
-  let calls = 0;
-  const got = await cache.tokens('t0', async () => {
-    calls += 1;
-    return [tok(0, 1, 0.9)];
-  }, { skip: true });
-  assert.equal(calls, 1);
+  const got = await cache.tokens('t0', async () => [tok(0, 1, 0.9)], { skip: true });
   assert.deepEqual(got, [live(0, 1, 0.9)]);
   let hit = 0;
   const cached = await cache.tokens('t0', async () => {
@@ -149,7 +161,7 @@ test('skip：已有缓存也打网并覆盖；失败则原条留下', async () =
     return [tok(0, 1)];
   });
   assert.equal(hit, 0);
-  assert.equal(cached[0].p, 0.9);
+  assert.equal(cached[0].p, 0.1);
 });
 
 test('失败不写', async () => {

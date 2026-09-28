@@ -143,10 +143,12 @@ test('paintRange：opts.skipCache 写进 ih-analyze', async () => {
   globalThis.__ihPaintStats = () => ({
     painted: 1, tokens_in: 1, tokens_skip_level: 0, tokens_skip_empty_range: 0,
   });
+  session.cloudModel = 'qwen3-0.6b';
   await R.paintRange(session, 0, 1, () => true, { skipCache: true }, newReport());
   const analyze = messages.filter((m) => m.type === 'ih-analyze');
   assert.equal(analyze.length, 1);
   assert.equal(analyze[0].skipCache, true);
+  assert.equal(analyze[0].cloudModel, 'qwen3-0.6b');
 });
 
 test('afterPaint：painted===0 挂 detail；对用户只抛 emptyMsg', async () => {
@@ -365,6 +367,8 @@ test('background.js：失败时 error/detail 写进同一条 /api/extension-usag
   assert.match(fn[0], /if \(model\) payload\.model = model/);
   assert.match(fn[0], /payload\.error = err/);
   assert.match(fn[0], /payload\.detail = detail/);
+  assert.match(fn[0], /payload\.options = options/);
+  assert.match(src, /auto_sites: sites\.length/);
   assert.doesNotMatch(src, /function usageModelId/);
   assert.doesNotMatch(src, /\/api\/extension-analysis-fail/);
 });

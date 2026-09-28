@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-ih-i18n="1">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -13,6 +13,7 @@
       --line: #e1e3e1;
       --btn-border: #747775;
       --group: #f3f4f3;
+      --top-bar: 45px;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -25,6 +26,7 @@
       }
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
       min-height: 100vh;
@@ -33,19 +35,79 @@
       background: var(--bg);
     }
     .top {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      height: var(--top-bar);
+      background: var(--bg);
       border-bottom: 1px solid var(--line);
     }
     .top-inner {
       display: flex;
       align-items: center;
-      gap: 12px;
-      max-width: 680px;
+      gap: 8px;
+      max-width: 960px;
       margin: 0 auto;
-      padding: 12px 24px;
+      padding: 6px 24px;
     }
-    .top-icon { flex-shrink: 0; width: 40px; height: 40px; border-radius: 8px; }
-    .top-name { font-size: 22px; font-weight: 600; }
-    main { max-width: 680px; margin: 0 auto; padding: 16px 24px 40px; }
+    .top-icon { flex-shrink: 0; width: 32px; height: 32px; border-radius: 6px; }
+    .top-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .top-name { font-size: 18px; font-weight: 600; }
+    .top-version { color: var(--muted); font-size: 13px; font-weight: 400; }
+    button.top-guide {
+      margin-left: auto;
+      height: auto;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: none;
+      color: #0A84FF;
+      font-size: 14px;
+      font-weight: 400;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    button.top-guide:hover { filter: none; }
+    .layout {
+      display: flex;
+      align-items: flex-start;
+      gap: 32px;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 8px 24px 40px;
+    }
+    .side-nav {
+      position: sticky;
+      top: calc(var(--top-bar) + 12px);
+      flex: 0 0 196px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .side-nav a {
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      padding: 8px 12px;
+      border-radius: 20px;
+      color: var(--fg);
+      font-size: 16px;
+      line-height: 20px;
+      text-decoration: none;
+    }
+    .side-nav a.nav-is-new::after {
+      content: "";
+      flex-shrink: 0;
+      width: 0.45em;
+      height: 0.45em;
+      border-radius: 50%;
+      background: #0A84FF;
+    }
+    .side-nav a:hover,
+    .side-nav a[aria-current="true"] { background: var(--group); }
+    .side-nav a:focus:not(:focus-visible) { outline: none; }
+    main { flex: 1; min-width: 0; margin: 0; padding: 8px 0 100vh; }
+    section { scroll-margin-top: calc(var(--top-bar) + 12px); }
     .page-demo {
       display: flex;
       align-items: center;
@@ -53,7 +115,7 @@
       gap: 10px;
       margin: 0 0 22px;
       cursor: pointer;
-      font-size: 16px;
+      font-size: 13px;
     }
     section { margin: 0 0 22px; }
     section:last-child { margin-bottom: 0; }
@@ -340,6 +402,59 @@
     button.ih-color-swatch[aria-checked="true"] {
       box-shadow: 0 0 0 2px var(--fg);
     }
+    .about-lead { margin: 0; font-size: 16px; line-height: 1.35; }
+    .about-feedback summary {
+      width: fit-content;
+      margin: 8px auto;
+      list-style: none;
+      cursor: pointer;
+      font-weight: 500;
+      height: 36px;
+      line-height: 34px;
+      padding: 0 16px;
+      border: 1px solid var(--btn-border);
+      border-radius: 16px;
+    }
+    .about-feedback summary::-webkit-details-marker { display: none; }
+    .about-feedback summary::marker { content: ""; }
+    .about-feedback summary:hover { filter: brightness(1.08); }
+    .about-feedback[open] summary { margin-bottom: 0; }
+    .group > .row:has(+ .about-feedback) { border-bottom: 1px solid var(--line); }
+    .about-feedback .row:last-child { border-bottom: none; }
+    a.about-home {
+      color: #0A84FF;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .about-optional {
+      margin-left: 0.35em;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+    .row-about-note {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .row-about-note > .row-text { flex: none; }
+    .row-about-note textarea {
+      flex: none;
+      width: 100%;
+      min-height: 96px;
+      margin: 0;
+      padding: 8px 10px;
+      border: 1px solid var(--btn-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+      line-height: 1.35;
+      resize: vertical;
+    }
+    #about_send { margin-left: auto; }
+    #about_feedback_status { margin: 0; flex: 1; min-width: 0; }
+    button.about-sent:disabled { opacity: 1; color: var(--muted); }
     ul.sites { margin: 0; padding: 0; list-style: none; }
     ul.sites:empty { display: none; }
     ul.sites .row {
@@ -364,192 +479,267 @@
 <body>
   <header class="top">
     <div class="top-inner">
-      <img id="brand_icon" class="top-icon" width="40" height="40" alt="">
-      <span id="brand_name" class="top-name"></span>
+      <img id="brand_icon" class="top-icon" width="32" height="32" alt="">
+      <span class="top-title">
+        <span id="brand_name" class="top-name"></span>
+        <span id="brand_version" class="top-version"></span>
+      </span>
+      <button type="button" class="top-guide" id="welcome_open" data-i18n>How to use</button>
     </div>
   </header>
+  <div class="layout">
+  <nav class="side-nav" aria-label="Settings" data-i18n-attr="aria-label">
+    <a href="#highlight" data-i18n>Highlight</a>
+    <a href="#display" data-i18n>Display</a>
+    <a href="#content" data-i18n>Content</a>
+    <a href="#analysis" data-i18n>Analysis</a>
+    <a href="#auto-analyze" data-i18n>Auto analyze</a>
+    <a href="#storage" data-i18n>Storage</a>
+    <a href="#settings-restore" data-i18n>Settings restore</a>
+    <a href="#about" data-i18n>About</a>
+  </nav>
   <main>
     <label class="page-demo">
-      <input type="checkbox" id="ih_highlight_options_page">
-      Highlight this page to preview
+      <input type="checkbox" id="ih_highlight_options_page" checked>
+      <span data-i18n>Highlight this page to preview</span>
     </label>
-    <section>
-    <h2>Highlight</h2>
+    <section id="highlight">
+    <h2 data-i18n>Highlight</h2>
     <div class="group">
     <div class="row row-paint" data-option-id="ih_paint_style">
       <div class="row-text">
-        <div class="row-title">Highlight style</div>
-        <p class="row-desc">PDFs fall back to underline.</p>
+        <div class="row-title" data-i18n>Highlight style</div>
+        <p class="row-desc" data-i18n>PDFs fall back to underline.</p>
       </div>
-      <div class="ih-paint-cards" id="ih_paint_style" role="radiogroup" aria-label="Highlight style"></div>
+      <div class="ih-paint-cards" id="ih_paint_style" role="radiogroup" aria-label="Highlight style" data-i18n-attr="aria-label"></div>
     </div>
     <div class="row row-slider" data-option-id="ih_highlight_color">
       <div class="row-text">
-        <div class="row-title">Highlight color</div>
+        <div class="row-title" data-i18n>Highlight color</div>
       </div>
-      <div class="ih-color-swatches" id="ih_highlight_swatches" role="radiogroup" aria-label="Highlight color presets"></div>
-      <input type="range" class="ih-hue" id="ih_highlight_color" min="0" max="359" step="1" aria-label="Highlight color">
+      <div class="ih-color-swatches" id="ih_highlight_swatches" role="radiogroup" aria-label="Highlight color presets" data-i18n-attr="aria-label"></div>
+      <input type="range" class="ih-hue" id="ih_highlight_color" min="0" max="359" step="1" aria-label="Highlight color" data-i18n-attr="aria-label">
     </div>
     <div class="row" hidden>
       <div class="row-text">
-        <div class="row-title">Text color</div>
+        <div class="row-title" data-i18n>Text color</div>
       </div>
       <div class="ih-color-swatches" id="ih_text_swatches" role="radiogroup" aria-label="Text color"></div>
     </div>
     <div class="row row-slider" data-option-id="ih_max_highlight_alpha">
       <div class="row-slider-top">
         <div class="row-text">
-          <div class="row-title">Highlight intensity</div>
+          <div class="row-title" data-i18n>Highlight intensity</div>
         </div>
         <span class="row-slider-value" id="ih_depth_value"></span>
       </div>
-      <input type="range" class="ih-intensity" id="ih_max_highlight_alpha" min="5" max="150" step="1" aria-label="Highlight intensity">
+      <input type="range" class="ih-intensity" id="ih_max_highlight_alpha" min="5" max="150" step="1" aria-label="Highlight intensity" data-i18n-attr="aria-label">
     </div>
     <div class="row row-slider" data-option-id="ih_fade_min_pct" hidden>
       <div class="row-slider-top">
         <div class="row-text">
-          <div class="row-title">Fade floor</div>
+          <div class="row-title" data-i18n>Minimum visibility</div>
+          <p class="row-desc" data-i18n>How visible the least important text stays.</p>
         </div>
         <span class="row-slider-value" id="ih_fade_value"></span>
       </div>
-      <input type="range" class="ih-intensity ih-fade" id="ih_fade_min_pct" min="0" max="50" step="1" aria-label="Fade floor">
+      <input type="range" class="ih-intensity ih-fade" id="ih_fade_min_pct" min="0" max="50" step="1" aria-label="Minimum visibility" data-i18n-attr="aria-label">
     </div>
     <label class="row" data-option-id="ih_fade_norm" hidden>
       <div class="row-text">
-        <div class="row-title">Normalize scale</div>
-        <p class="row-desc">Scale the highlight so about 20% of the text is at full highlight.</p>
+        <div class="row-title" data-i18n>Normalize scale</div>
+        <p class="row-desc" data-i18n>Scale the highlight so the most surprising text is at full highlight.</p>
       </div>
       <input type="checkbox" id="ih_fade_norm">
     </label>
+    <div class="row row-slider row-nested" id="ih_fade_norm_row" hidden>
+      <div class="row-slider-top">
+        <div class="row-text">
+          <div class="row-title" id="ih_fade_norm_value"></div>
+        </div>
+      </div>
+      <input type="range" class="ih-intensity ih-fade" id="ih_fade_norm_pct" min="1" max="50" step="1" aria-label="Percent at full highlight" data-i18n-attr="aria-label">
+    </div>
     <label class="row" data-option-id="ih_two_tier">
       <div class="row-text">
-        <div class="row-title">One-tone highlight <span class="experimental">Experimental</span></div>
-        <p class="row-desc">Not recommended. Threshold does not generalize across models.</p>
+        <div class="row-title"><span data-i18n>One-tone highlight</span> <span data-i18n class="experimental">Experimental</span></div>
+        <p class="row-desc" data-i18n>Not recommended. Threshold does not generalize across models.</p>
       </div>
       <input type="checkbox" id="ih_two_tier">
     </label>
     <div class="row row-slider row-nested" id="ih_threshold_row" hidden>
       <div class="row-slider-top">
         <div class="row-text">
-          <div class="row-title">Highlight threshold</div>
+          <div class="row-title" data-i18n>Highlight threshold</div>
         </div>
         <span class="row-slider-value" id="ih_threshold_value"></span>
       </div>
-      <input type="range" id="ih_highlight_threshold_pct" min="0" max="100" step="1" aria-label="Highlight threshold">
+      <input type="range" id="ih_highlight_threshold_pct" min="0" max="100" step="1" aria-label="Highlight threshold" data-i18n-attr="aria-label">
     </div>
     </div>
     </section>
-    <section>
-    <h2>Display</h2>
+    <section id="display">
+    <h2 data-i18n>Display</h2>
     <div class="group">
     <label class="row" data-option-id="show_token_tip">
       <div class="row-text">
-        <div class="row-title">Hover for details</div>
-        <p class="row-desc">Hidden if you analyze the page again.</p>
+        <div class="row-title" data-i18n>Hover for details</div>
+        <p class="row-desc" data-i18n>Only for highlights just analyzed. Not for highlights restored from cache.</p>
       </div>
       <input type="checkbox" id="show_token_tip" checked>
     </label>
     <label class="row" data-option-id="show_progress">
       <div class="row-text">
-        <div class="row-title">Progress chart <span class="experimental">Experimental</span></div>
+        <div class="row-title"><span data-i18n>Progress chart</span> <span data-i18n class="experimental">Experimental</span></div>
       </div>
       <input type="checkbox" id="show_progress">
     </label>
     <label class="row" data-option-id="ih_word_merge">
       <div class="row-text">
-        <div class="row-title">Merge subwords <span class="experimental">Experimental</span></div>
-        <p class="row-desc">Not recommended. Hover still shows tokens.</p>
+        <div class="row-title"><span data-i18n>Merge subwords</span> <span data-i18n class="experimental">Experimental</span></div>
+        <p class="row-desc" data-i18n>Hover still shows tokens.</p>
       </div>
       <input type="checkbox" id="ih_word_merge">
     </label>
     </div>
     </section>
-    <section>
-    <h2>Content</h2>
+    <section id="content">
+    <h2 data-i18n>Content</h2>
     <div class="group">
     <label class="row" data-option-id="ih_article_only">
       <div class="row-text">
-        <div class="row-title">Main article only</div>
-        <p class="row-desc">Turn off to include other visible text.</p>
+        <div class="row-title" data-i18n>Main article only</div>
+        <p class="row-desc" data-i18n>Turn on to skip other visible text.</p>
       </div>
-      <input type="checkbox" id="ih_article_only" checked>
+      <input type="checkbox" id="ih_article_only">
     </label>
     </div>
     </section>
-    <section>
-    <h2>Analysis</h2>
+    <section id="analysis">
+    <h2 data-i18n>Analysis</h2>
     <div class="group">
     <div class="row" data-option-id="analyze_pref">
       <div class="row-text">
-        <div class="row-title">Where to analyze</div>
-        <p class="row-desc">On-device only never uploads, and never uses the cloud.</p>
+        <div class="row-title" data-i18n>Where to analyze</div>
+        <p class="row-desc" data-i18n>On-device only never uploads, and never uses the cloud.</p>
       </div>
-      <select id="analyze_pref" aria-label="Where to analyze">
-        <option value="auto">Auto</option>
-        <option value="local" disabled>On this device only</option>
-        <option value="cloud">Cloud only</option>
+      <select id="analyze_pref" aria-label="Where to analyze" data-i18n-attr="aria-label">
+        <option value="auto" data-i18n>Auto</option>
+        <option value="local" disabled data-i18n>On this device only</option>
+        <option value="cloud" data-i18n>Cloud only</option>
       </select>
     </div>
     <div class="row" data-option-id="ih_cloud_model">
       <div class="row-text">
-        <div class="row-title">Cloud model</div>
+        <div class="row-title" data-i18n>Cloud model</div>
       </div>
-      <select id="ih_cloud_model" aria-label="Cloud model"></select>
+      <select id="ih_cloud_model" aria-label="Cloud model" data-i18n-attr="aria-label"></select>
     </div>
     <div class="row">
       <div class="row-text">
-        <div class="row-title">On-device WebGPU</div>
-        <p id="webgpu_desc" class="row-desc">Checking…</p>
+        <div class="row-title" data-i18n>Cloud network latency</div>
+        <p class="row-desc">
+          <span id="latency_edge" data-i18n>Measuring…</span><br>
+          <span id="latency_backend" data-i18n>Measuring…</span>
+        </p>
+      </div>
+      <button type="button" id="latency_retry" data-i18n>Retry</button>
+    </div>
+    <div class="row">
+      <div class="row-text">
+        <div class="row-title" data-i18n>On-device WebGPU</div>
+        <p id="webgpu_desc" class="row-desc" data-i18n>Checking…</p>
       </div>
     </div>
     <div class="row">
       <div class="row-text">
-        <div class="row-title">On-device model</div>
-        <p id="model_desc" class="row-desc">Reading…</p>
+        <div class="row-title" data-i18n>On-device model</div>
+        <p id="model_desc" class="row-desc" data-i18n>Reading…</p>
       </div>
       <div class="row-btns">
-        <button type="button" id="local_init">Prepare</button>
-        <button type="button" id="model_clear" disabled>Clear</button>
+        <button type="button" id="local_init" data-i18n>Prepare</button>
+        <button type="button" id="model_clear" disabled data-i18n>Clear</button>
       </div>
     </div>
     </div>
     </section>
-    <section>
-    <h2>Auto analyze</h2>
+    <section id="auto-analyze">
+    <h2 data-i18n>Auto analyze</h2>
     <div class="group">
     <div class="row" data-option-id="ih_auto_sites">
       <div class="row-text">
-        <div class="row-title">Sites</div>
-        <p class="row-desc">When a matching tab comes to the front. <code>*.example.com</code> or <code>*</code>.</p>
+        <div class="row-title" data-i18n>Sites</div>
+        <p class="row-desc" data-i18n>Always analyze sites below. Or use right-click menu -&gt; Always analyze this site.</p>
       </div>
     </div>
     <div class="row">
-      <input type="text" id="auto_site_input" placeholder="example.com" aria-label="Site to add" autocomplete="off" spellcheck="false">
-      <button type="button" id="auto_site_add">Add</button>
+      <input type="text" id="auto_site_input" placeholder="example.com" aria-label="Site to add" data-i18n-attr="aria-label" autocomplete="off" spellcheck="false">
+      <button type="button" id="auto_site_add" data-i18n>Add</button>
     </div>
     <p id="auto_site_error" class="row-desc" hidden></p>
     <ul id="auto_sites" class="sites"></ul>
     </div>
     </section>
-    <section>
-    <h2>Storage</h2>
+    <section id="storage">
+    <h2 data-i18n>Storage</h2>
     <div class="group">
     <div class="row">
       <div class="row-text">
-        <div class="row-title">Analysis cache</div>
+        <div class="row-title" data-i18n>Analysis cache</div>
         <p id="cache_desc" class="row-desc"></p>
       </div>
-      <button type="button" id="cache_clear">Clear</button>
+      <button type="button" id="cache_clear" data-i18n>Clear</button>
     </div>
     </div>
     </section>
+    <section id="settings-restore">
+    <h2 data-i18n>Settings restore</h2>
+    <div class="group">
+    <div class="row">
+      <div class="row-text">
+        <div class="row-title" data-i18n>Restore recommended</div>
+        <p class="row-desc" data-i18n>Puts settings back to the defaults. Auto-analyze sites stay.</p>
+      </div>
+      <button type="button" id="restore_recommended" data-i18n>Restore</button>
+    </div>
+    </div>
+    </section>
+    <section id="about">
+    <h2 data-i18n>About</h2>
+    <div class="group">
+    <div class="row">
+      <div class="row-text">
+        <p class="about-lead" data-i18n-html>Info Highlight is part of <a class="about-home" href="https://info-lens.app/" target="_blank" rel="noopener noreferrer">Info Lens</a>, a toolbox for exploring the informational nature of LLMs and language.</p>
+      </div>
+    </div>
+    <details class="about-feedback" id="about_feedback">
+      <summary data-i18n>Feedback</summary>
+      <div class="row row-about-note">
+        <p class="row-desc" id="about_prompt" data-i18n>We'd love to hear from you. Please tell us anything you'd like.</p>
+        <textarea id="about_message" rows="4" maxlength="4000" aria-labelledby="about_prompt"></textarea>
+      </div>
+      <div class="row">
+        <label class="row-title" for="about_contact"><span data-i18n>Contact</span> <span data-i18n class="about-optional">optional</span></label>
+        <input type="text" id="about_contact" maxlength="200" autocomplete="off" spellcheck="false" aria-label="Contact, optional" data-i18n-attr="aria-label">
+      </div>
+      <div class="row">
+        <p id="about_feedback_status" class="row-desc" hidden></p>
+        <button type="button" id="about_send" disabled>Send</button>
+      </div>
+    </details>
+    </div>
+    </section>
   </main>
+  </div>
+  <script src="zh.js"></script>
+  <script src="i18n.js"></script>
   <script src="cache/ring-store.js"></script>
   <script src="analyzeCache.js"></script>
   <script src="local/state.js"></script>
   <script src="local/userErrors.js"></script>
   <script src="auto-sites.js"></script>
   <script src="highlightStyle.js"></script>
+  <script src="optionDefaults.js"></script>
   <script src="sw/action-dot.js"></script>
   <script src="options-attention.js"></script>
   <script src="options-catalog.js"></script>
@@ -573,6 +763,7 @@
   <script src="cloudWait.js"></script>
   <script src="page-map.js"></script>
   <script src="analyzeRun.js"></script>
+  <script src="auto-nudge.js"></script>
   <script src="content.js"></script>
   <script src="options-highlight.js"></script>
 </body>

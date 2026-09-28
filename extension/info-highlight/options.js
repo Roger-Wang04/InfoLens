@@ -1,4 +1,5 @@
 (() => {
+  const { tr } = globalThis.IH_i18n;
   if (!globalThis.IH_analyzeCache) {
     throw new Error('IH_analyzeCache missing — inject analyzeCache.js before options.js');
   }
@@ -7,6 +8,9 @@
   }
   if (!globalThis.IH_highlightStyle) {
     throw new Error('IH_highlightStyle missing — inject highlightStyle.js before options.js');
+  }
+  if (!globalThis.IH_optionDefaults || typeof globalThis.IH_optionStored !== 'function') {
+    throw new Error('IH_optionDefaults missing — inject optionDefaults.js before options.js');
   }
   if (!globalThis.IH_autoSites) {
     throw new Error('IH_autoSites missing — inject auto-sites.js before options.js');
@@ -18,24 +22,27 @@
   IL_setActionIconDotted(false);
 
   const HS = globalThis.IH_highlightStyle;
+  const optionDefaults = globalThis.IH_optionDefaults;
+  const optionStored = globalThis.IH_optionStored;
 
   let resolvePageReady;
   globalThis.IH_optionsPageReady = new Promise((r) => { resolvePageReady = r; });
 
-  /** 复选框 id 即 chrome.storage.local 的键；值为默认值 */
-  const TOGGLES = {
-    ih_article_only: true,
-    show_progress: false,
-    show_token_tip: true,
-    [HS.KEY_TWO_TIER]: HS.STORAGE_DEFAULTS[HS.KEY_TWO_TIER],
-    [HS.KEY_FADE_NORM]: HS.STORAGE_DEFAULTS[HS.KEY_FADE_NORM],
-    ih_word_merge: false,
-    ih_highlight_options_page: false,
-  };
+  /** 复选框 id 即 chrome.storage.local 的键；默认值在 optionDefaults.js */
+  const TOGGLE_KEYS = [
+    'ih_article_only',
+    'show_progress',
+    'show_token_tip',
+    HS.KEY_TWO_TIER,
+    HS.KEY_FADE_NORM,
+    'ih_word_merge',
+    'ih_highlight_options_page',
+  ];
 
   const ids = [
-    'brand_icon', 'brand_name',
+    'brand_icon', 'brand_name', 'brand_version', 'welcome_open',
     'analyze_pref', 'ih_cloud_model',
+    'latency_edge', 'latency_backend', 'latency_retry',
     'webgpu_desc', 'model_desc',
     'local_init', 'model_clear',
     'auto_sites', 'auto_site_input', 'auto_site_add', 'auto_site_error',
@@ -43,8 +50,11 @@
     'ih_threshold_row', 'ih_threshold_value', 'ih_highlight_threshold_pct',
     'ih_depth_value', 'ih_max_highlight_alpha',
     'ih_fade_value', 'ih_fade_min_pct',
+    'ih_fade_norm_row', 'ih_fade_norm_value', 'ih_fade_norm_pct',
     'ih_paint_style', 'ih_highlight_color', 'ih_highlight_swatches',
     'ih_text_swatches',
+    'restore_recommended',
+    'about_feedback', 'about_message', 'about_contact', 'about_send', 'about_feedback_status',
   ];
   const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
   if (ids.some((id) => !el[id])) {
@@ -53,13 +63,28 @@
 
   const manifest = chrome.runtime.getManifest();
   const name = manifest.name;
+  const version = manifest.version;
   const iconRel = manifest.icons?.['48'] || manifest.icons?.['32'] || manifest.icons?.['128'];
   if (!name) throw new Error('manifest name missing');
+  if (!version) throw new Error('manifest version missing');
   if (!iconRel) throw new Error('manifest icons missing');
   document.title = name;
   el.brand_name.textContent = name;
+  el.brand_version.textContent = version;
   el.brand_icon.src = iconRel;
   el.brand_icon.alt = name;
+
+  function openWelcome() {
+    chrome.runtime.sendMessage({ type: 'ih-open-welcome' });
+  }
+  el.welcome_open.addEventListener('click', openWelcome);
+  const welcomeParams = new URLSearchParams(location.search);
+  if (welcomeParams.has('welcome')) {
+    welcomeParams.delete('welcome');
+    const rest = welcomeParams.toString();
+    history.replaceState(null, '', location.pathname + (rest ? `?${rest}` : '') + location.hash);
+    openWelcome();
+  }
 
   // Qwen3-0.6B-Base surprisal bits。勾选归一化时，只用这段预览自己的文字定最强档。
   const DEMO_TOKENS = [
@@ -84,13 +109,16 @@
     return n;
   }
 
+  function fadeNormOn() {
+    return !!document.getElementById(HS.KEY_FADE_NORM)?.checked;
+  }
+
   function syncDemoFadeScale() {
-    const on = !!document.getElementById(HS.KEY_FADE_NORM)?.checked;
-    demoFadeScale = on
+    demoFadeScale = fadeNormOn()
       ? HS.fadeNormScaleBits(DEMO_TOKENS.map(([raw, bits]) => ({
         bits,
         weight: demoTextWeight(raw),
-      })))
+      })), HS.clampFadeNormPct(el.ih_fade_norm_pct.value))
       : null;
   }
 
@@ -143,8 +171,15 @@
     if (intensityRow) intensityRow.hidden = fade;
     const fadeRow = rowFor(HS.KEY_FADE_MIN_PCT);
     if (fadeRow) fadeRow.hidden = !fade;
+    syncFadeNormUi();
+  }
+
+  function syncFadeNormUi() {
+    const fade = paintStyle === HS.PAINT_FADE;
     const fadeNormRow = rowFor(HS.KEY_FADE_NORM);
     if (fadeNormRow) fadeNormRow.hidden = !fade;
+    el.ih_fade_norm_row.hidden = !fade || !fadeNormOn();
+    syncPaintDemo();
   }
 
   function syncPaintStyle(v) {
@@ -161,16 +196,16 @@
     syncPaintDemo();
   }
 
-  let paintStyle = HS.PAINT_BLOCK;
+  let paintStyle = HS.PAINT_FADE;
   let highlightColor = HS.HUE_RED;
   let lastHue = HS.HUE_RED;
   let textColor = 'red';
 
   const PAINT_CARD_LABEL = Object.freeze({
-    [HS.PAINT_BLOCK]: 'Color blocks',
-    [HS.PAINT_UNDERLINE]: 'Underline',
-    [HS.PAINT_TEXT]: 'Text color',
-    [HS.PAINT_FADE]: 'Fade unimportant',
+    [HS.PAINT_BLOCK]: tr('Color blocks'),
+    [HS.PAINT_UNDERLINE]: tr('Underline'),
+    [HS.PAINT_TEXT]: tr('Text color'),
+    [HS.PAINT_FADE]: tr('Fade unimportant'),
   });
 
   function hueNear(a, b) {
@@ -251,39 +286,48 @@
   });
 
   function loadToggles() {
-    return Promise.all(Object.entries(TOGGLES).map(([key, fallback]) => new Promise((resolve) => {
+    for (const key of TOGGLE_KEYS) {
       const box = document.getElementById(key);
       if (!box) throw new Error(`options page missing checkbox: ${key}`);
-      chrome.storage.local.get({ [key]: fallback }, (res) => {
-        box.checked = !!res[key];
-        if (key === HS.KEY_TWO_TIER) syncTwoTierUi(box.checked);
-        if (key === HS.KEY_FADE_NORM) syncPaintDemo();
-        resolve();
-      });
       box.addEventListener('change', () => {
         chrome.storage.local.set({ [key]: box.checked });
         if (key === HS.KEY_TWO_TIER) syncTwoTierUi(box.checked);
-        if (key === HS.KEY_FADE_NORM) syncPaintDemo();
+        if (key === HS.KEY_FADE_NORM) syncFadeNormUi();
       });
-    })));
+    }
+    return new Promise((resolve) => {
+      chrome.storage.local.get(optionDefaults, (res) => {
+        for (const key of TOGGLE_KEYS) {
+          const box = document.getElementById(key);
+          box.checked = !!optionStored(key, res?.[key]);
+          if (key === HS.KEY_TWO_TIER) syncTwoTierUi(box.checked);
+          if (key === HS.KEY_FADE_NORM) syncFadeNormUi();
+        }
+        resolve();
+      });
+    });
   }
 
   function loadSliders() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(HS.STORAGE_DEFAULTS, (res) => {
-        const prefs = HS.normalizePrefs(res);
-        el.ih_highlight_threshold_pct.value = String(prefs.thresholdPct);
-        syncThresholdLabel(prefs.thresholdPct);
-        el.ih_fade_min_pct.value = String(prefs.fadeMinPct);
-        syncPaintStyle(prefs.paintStyle);
-        el.ih_max_highlight_alpha.value = String(prefs.maxAlphaDepth);
-        syncHighlightColor(prefs.highlightColor);
-        syncTextColor(prefs.textColor);
-        syncFadeLabel(prefs.fadeMinPct);
-        syncTwoTierUi(prefs.twoTier);
+      chrome.storage.local.get(optionDefaults, (res) => {
+        applyHighlightForm(HS.normalizePrefs(res));
         resolve();
       });
     });
+  }
+
+  function applyHighlightForm(prefs) {
+    el.ih_highlight_threshold_pct.value = String(prefs.thresholdPct);
+    syncThresholdLabel(prefs.thresholdPct);
+    syncPaintStyle(prefs.paintStyle);
+    el.ih_max_highlight_alpha.value = String(prefs.maxAlphaDepth);
+    syncHighlightColor(prefs.highlightColor);
+    syncTextColor(prefs.textColor);
+    syncFadeLabel(prefs.fadeMinPct);
+    syncFadeNormLabel(prefs.fadeNormPct);
+    syncTwoTierUi(prefs.twoTier);
+    syncFadeNormUi();
   }
 
   function syncFadeLabel(pct) {
@@ -291,6 +335,18 @@
     el.ih_fade_min_pct.value = String(p);
     el.ih_fade_value.textContent = HS.formatFadeLabel(p);
     const input = el.ih_fade_min_pct;
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const fill = max === min ? 100 : ((p - min) / (max - min)) * 100;
+    input.style.setProperty('--ih-intensity-pct', `${fill}%`);
+    syncPaintDemo();
+  }
+
+  function syncFadeNormLabel(pct) {
+    const p = HS.clampFadeNormPct(pct);
+    el.ih_fade_norm_pct.value = String(p);
+    el.ih_fade_norm_value.textContent = HS.formatFadeNormLabel(p);
+    const input = el.ih_fade_norm_pct;
     const min = Number(input.min);
     const max = Number(input.max);
     const fill = max === min ? 100 : ((p - min) / (max - min)) * 100;
@@ -316,6 +372,36 @@
     const pct = HS.clampFadeMinPct(el.ih_fade_min_pct.value);
     syncFadeLabel(pct);
     chrome.storage.local.set({ [HS.KEY_FADE_MIN_PCT]: pct });
+  });
+
+  el.ih_fade_norm_pct.addEventListener('input', () => {
+    const pct = HS.clampFadeNormPct(el.ih_fade_norm_pct.value);
+    syncFadeNormLabel(pct);
+    chrome.storage.local.set({ [HS.KEY_FADE_NORM_PCT]: pct });
+  });
+
+  el.restore_recommended.addEventListener('click', () => {
+    if (!confirm(tr('Restore recommended settings? Auto-analyze sites stay.'))) return;
+    for (const key of TOGGLE_KEYS) {
+      document.getElementById(key).checked = !!optionDefaults[key];
+    }
+    applyHighlightForm(HS.normalizePrefs({}));
+    const keys = [
+      ...Object.keys(optionDefaults),
+      IH_localState.KEYS.pref,
+      IH_localState.KEYS.cloudModel,
+    ];
+    void IH_localState.get().then((st) => {
+      const engineChanged = st.pref !== IH_localState.PREF_AUTO
+        || st.cloudModel !== IH_localState.CLOUD_MODELS[0].id;
+      chrome.storage.local.remove([...new Set(keys)], () => {
+        if (!engineChanged) {
+          loadBackend();
+          return;
+        }
+        void IH_analyzeCache.dropAll().finally(() => loadBackend());
+      });
+    });
   });
 
   function pickPaint(v) {
@@ -392,15 +478,15 @@
   }
 
   function modelStatusText(st, webgpu) {
-    if (st.ready) return 'Ready (Gemma 3 270M)';
-    if (webgpu) return 'Not prepared (Gemma 3 270M)';
-    return 'This computer cannot run the on-device model';
+    if (st.ready) return tr('Ready (Gemma 3 270M)');
+    if (webgpu) return tr('Not prepared (Gemma 3 270M)');
+    return tr('This computer cannot run the on-device model');
   }
 
   let modelCacheGen = 0;
   function applyBackend(st) {
     const webgpu = st.webgpuOk === true;
-    el.webgpu_desc.textContent = IH_userErrors.webgpuStatusLine(st.pref, st.webgpuOk);
+    el.webgpu_desc.textContent = IH_userErrors.webgpuStatusLine(st.webgpuOk);
     const base = modelStatusText(st, webgpu);
     el.model_desc.textContent = base;
     el.analyze_pref.value = st.pref === 'cloud' || st.pref === 'local' ? st.pref : 'auto';
@@ -428,7 +514,7 @@
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'ih-local-status' }, (res) => {
         if (chrome.runtime.lastError || !res?.ok) {
-          el.webgpu_desc.textContent = res?.error || chrome.runtime.lastError?.message || 'Failed to read status';
+          el.webgpu_desc.textContent = res?.error || chrome.runtime.lastError?.message || tr('Failed to read status');
           el.local_init.disabled = true;
           el.model_clear.disabled = true;
           resolve();
@@ -462,11 +548,8 @@
   function startPrepare() {
     syncNewDotsPaused(true);
     el.local_init.disabled = true;
-    const pref = el.analyze_pref.value === 'cloud' ? 'auto' : el.analyze_pref.value;
-    chrome.runtime.sendMessage({ type: 'ih-local-set-pref', pref }, () => {
-      chrome.runtime.sendMessage({ type: 'ih-local-open-init' }, () => {
-        loadBackend();
-      });
+    chrome.runtime.sendMessage({ type: 'ih-local-open-init' }, () => {
+      loadBackend();
     });
   }
 
@@ -474,20 +557,12 @@
     startPrepare();
   });
 
-  {
-    const q = new URLSearchParams(location.search);
-    if (q.get('prepare') === '1') {
-      history.replaceState(null, '', chrome.runtime.getURL('options.html'));
-      startPrepare();
-    }
-  }
-
   el.model_clear.addEventListener('click', () => {
-    if (!confirm('Clear the on-device model? Using it next time will download about 800 MB again.')) return;
+    if (!confirm(tr('Clear the on-device model? Using it next time will download about 800 MB again.'))) return;
     el.model_clear.disabled = true;
     chrome.runtime.sendMessage({ type: 'ih-local-drop-model' }, (res) => {
       if (chrome.runtime.lastError || !res?.ok) {
-        el.model_desc.textContent = res?.error || chrome.runtime.lastError?.message || 'Failed to clear';
+        el.model_desc.textContent = res?.error || chrome.runtime.lastError?.message || tr('Failed to clear');
         el.model_clear.disabled = false;
         return;
       }
@@ -506,7 +581,7 @@
     text.append(title);
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = 'Remove';
+    btn.textContent = tr('Remove');
     btn.addEventListener('click', () => {
       btn.disabled = true;
       // 名单变了由 storage.onChanged 重绘
@@ -534,7 +609,7 @@
     showAutoSiteError('');
     const host = globalThis.IH_autoSites.parseHost(el.auto_site_input.value);
     if (!host) {
-      showAutoSiteError('Enter a site like example.com, *.example.com, or * for every site');
+      showAutoSiteError(tr('Enter a site like example.com, *.example.com, or * for every site'));
       return;
     }
     // 选项页点 Add 本身就是手势，可直接 request
@@ -572,7 +647,7 @@
 
   async function refresh() {
     const { entries, bytes } = await globalThis.IH_analyzeCache.usage();
-    el.cache_desc.textContent = `${entries} entries · ${formatBytes(bytes)}`;
+    el.cache_desc.textContent = tr('{entries} entries · {size}', { entries, size: formatBytes(bytes) });
     el.cache_clear.disabled = entries === 0;
   }
 
@@ -596,9 +671,11 @@
     el.model_clear.disabled = true;
     if (info && Number.isFinite(info.loaded) && Number.isFinite(info.total) && info.total > 0) {
       const file = info.file || info.name || '';
-      el.model_desc.textContent = `Downloading ${file} · ${formatBytes(info.loaded)} / ${formatBytes(info.total)}`;
+      el.model_desc.textContent = tr('Downloading {file} · {loaded} / {total}', {
+        file, loaded: formatBytes(info.loaded), total: formatBytes(info.total),
+      });
     } else {
-      el.model_desc.textContent = 'Downloading on-device model…';
+      el.model_desc.textContent = tr('Downloading on-device model…');
     }
   });
 
@@ -610,6 +687,68 @@
     if (changes[globalThis.IH_autoSites.KEY]) void loadAutoSites();
     if (Object.keys(changes).some((k) => k.startsWith(globalThis.IH_analyzeCache.PREFIX))) {
       void refresh().catch(showCacheError);
+    }
+  });
+
+  let aboutSentKey = '';
+  let aboutSending = false;
+
+  function aboutKey() {
+    return `${el.about_message.value}\n${el.about_contact.value}`;
+  }
+
+  function syncAboutSend() {
+    if (aboutSending) {
+      el.about_send.disabled = true;
+      return;
+    }
+    const sent = !!aboutSentKey && aboutKey() === aboutSentKey;
+    el.about_send.classList.toggle('about-sent', sent);
+    el.about_send.textContent = sent ? tr('Sent') : tr('Send');
+    el.about_send.disabled = sent || el.about_message.value.trim().length === 0;
+  }
+
+  function clearAboutError() {
+    if (!el.about_feedback_status.hidden) {
+      el.about_feedback_status.hidden = true;
+      el.about_feedback_status.textContent = '';
+    }
+  }
+
+  el.about_feedback.addEventListener('toggle', () => {
+    if (el.about_feedback.open) el.about_message.focus();
+  });
+  el.about_message.addEventListener('input', () => {
+    clearAboutError();
+    syncAboutSend();
+  });
+  el.about_contact.addEventListener('input', () => {
+    clearAboutError();
+    syncAboutSend();
+  });
+  el.about_send.addEventListener('click', async () => {
+    const message = el.about_message.value.trim();
+    if (!message || aboutSending || el.about_send.disabled) return;
+    aboutSending = true;
+    clearAboutError();
+    syncAboutSend();
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: 'ih-author-note',
+        message,
+        contact: el.about_contact.value.trim(),
+      });
+      if (!res?.ok) throw new Error(res?.error || 'Could not send');
+      aboutSentKey = aboutKey();
+      el.about_feedback_status.hidden = false;
+      el.about_feedback_status.textContent = tr('Thank you. Your feedback helps us improve.');
+    } catch (err) {
+      aboutSentKey = '';
+      el.about_feedback_status.hidden = false;
+      el.about_feedback_status.textContent = err?.message || String(err);
+    } finally {
+      aboutSending = false;
+      syncAboutSend();
     }
   });
 
@@ -631,4 +770,94 @@
     loadAutoSites(),
     refresh().catch(showCacheError),
   ]).finally(() => resolvePageReady());
+
+  // SYNC: sw/client-id.js IL_API_BASE
+  const API_BASE = 'https://api.info-lens.app';
+  const LATENCY_MS = 8000;
+
+  function latencyText(label, ms) {
+    const name = tr(label);
+    if (ms === 'measuring') return tr('{label}…', { label: name });
+    if (ms == null) return tr('{label} failed', { label: name });
+    return tr('{label} {ms} ms', { label: name, ms });
+  }
+
+  async function timeLatency(path, needReached) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), LATENCY_MS);
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${API_BASE}${path}`, { cache: 'no-store', signal: ctrl.signal });
+      const ms = Math.round(performance.now() - t0);
+      if (needReached && res.headers.get('X-Infolens-Reached') !== '1') return null;
+      return ms;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  let latencyGen = 0;
+  function measureCloudLatency() {
+    const gen = ++latencyGen;
+    el.latency_retry.disabled = true;
+    el.latency_edge.textContent = latencyText('Edge server', 'measuring');
+    el.latency_backend.textContent = latencyText('Compute server', 'measuring');
+    void Promise.all([
+      timeLatency('/facade-health', false),
+      timeLatency('/backend-latency', true),
+    ]).then(([edge, backend]) => {
+      if (gen !== latencyGen) return;
+      el.latency_edge.textContent = latencyText('Edge server', edge);
+      el.latency_backend.textContent = latencyText('Compute server', backend);
+      el.latency_retry.disabled = false;
+    });
+  }
+
+  el.latency_retry.addEventListener('click', measureCloudLatency);
+  measureCloudLatency();
+
+  const navItems = [...document.querySelectorAll('.side-nav a')].map((a) => {
+    const id = (a.getAttribute('href') || '').slice(1);
+    const section = document.getElementById(id);
+    if (!section) throw new Error(`options nav missing #${id}`);
+    return { a, section };
+  });
+
+  function syncNavCurrent() {
+    const top = document.querySelector('.top');
+    const line = (top ? top.getBoundingClientRect().height : 0) + 12;
+    let current = navItems[0];
+    for (const item of navItems) {
+      if (item.section.getBoundingClientRect().top <= line + 1) current = item;
+    }
+    for (const item of navItems) {
+      if (item === current) item.a.setAttribute('aria-current', 'true');
+      else item.a.removeAttribute('aria-current');
+    }
+  }
+
+  let navFrame = 0;
+  function scheduleNavCurrent() {
+    if (navFrame) return;
+    navFrame = requestAnimationFrame(() => {
+      navFrame = 0;
+      syncNavCurrent();
+    });
+  }
+
+  for (const { a, section } of navItems) {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      section.scrollIntoView({ block: 'start' });
+      history.replaceState(null, '', `#${section.id}`);
+      a.focus({ preventScroll: true });
+      scheduleNavCurrent();
+    });
+  }
+
+  window.addEventListener('scroll', scheduleNavCurrent, { passive: true });
+  window.addEventListener('resize', scheduleNavCurrent);
+  syncNavCurrent();
 })();

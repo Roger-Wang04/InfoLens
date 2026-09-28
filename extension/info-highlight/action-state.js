@@ -1,15 +1,16 @@
 /**
- * 工具栏图标三态（按 tab）：off 默认红 / analyzing 灰→红 8 格 / on 绿勾。
+ * 工具栏图标三态（按 tab）：off 默认红 / analyzing 未出块为全灰，其后灰→红 / on 绿勾。
  * 分析中短时忽略重复点击（防误触取消）。
  * TILES 与 icons/render-icons.py 的字块数一致。
  */
 (() => {
   const GRACE_MS = 500;
   const TILES = 8;
+  const { tr } = globalThis.IH_i18n;
   const TITLE = {
-    off: 'Info Highlight',
-    analyzing: 'Analyzing… · click to cancel',
-    on: 'Click to clear',
+    off: chrome.i18n.getMessage('extName'),
+    analyzing: tr('Analyzing… · click to cancel'),
+    on: tr('Click to clear'),
   };
 
   /** @type {Map<number, { state: 'off' | 'analyzing' | 'on', filled: number, since: number }>} */

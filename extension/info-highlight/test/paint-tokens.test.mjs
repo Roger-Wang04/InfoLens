@@ -74,7 +74,7 @@ globalThis.CSS = {
   },
 };
 globalThis.getComputedStyle = (el) => ({ color: el?.color || 'rgb(12, 34, 56)' });
-const stored = { show_progress: false };
+const stored = { show_progress: false, ih_paint_style: 'block' };
 globalThis.document = {
   createRange: () => new FakeRange(),
   createElement() {
@@ -124,8 +124,13 @@ globalThis.chrome = {
 runInThisContext(readFileSync(join(dir, '../../shared/page/textIndex.js'), 'utf8'), {
   filename: 'textIndex.js',
 });
+runInThisContext(readFileSync(join(dir, '../zh.js'), 'utf8'), { filename: 'zh.js' });
+runInThisContext(readFileSync(join(dir, '../i18n.js'), 'utf8'), { filename: 'i18n.js' });
 runInThisContext(readFileSync(join(dir, '../highlightStyle.js'), 'utf8'), {
   filename: 'highlightStyle.js',
+});
+runInThisContext(readFileSync(join(dir, '../optionDefaults.js'), 'utf8'), {
+  filename: 'optionDefaults.js',
 });
 runInThisContext(readFileSync(join(dir, '../wordMerge.js'), 'utf8'), {
   filename: 'wordMerge.js',
@@ -415,6 +420,7 @@ test('淡去归一化：整页结束后，最高的 20% 文字进最强档', () 
   const HS = globalThis.IH_highlightStyle;
   stored.ih_paint_style = HS.PAINT_FADE;
   stored.ih_fade_norm = true;
+  stored.ih_fade_norm_pct = 20;
   try {
     for (const fn of storageListeners) {
       fn({ ih_fade_norm: { newValue: true } }, 'local');
@@ -439,6 +445,7 @@ test('淡去归一化：整页结束后，最高的 20% 文字进最强档', () 
   } finally {
     delete stored.ih_paint_style;
     delete stored.ih_fade_norm;
+    delete stored.ih_fade_norm_pct;
     globalThis.IH_clearHighlights();
     for (const fn of storageListeners) {
       fn({ ih_paint_style: { newValue: 'block' } }, 'local');

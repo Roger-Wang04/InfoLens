@@ -10,6 +10,8 @@ import { runInThisContext } from 'node:vm';
 
 const dir = dirname(fileURLToPath(import.meta.url));
 runInThisContext(readFileSync(join(dir, '../local/state.js'), 'utf8'), { filename: 'state.js' });
+runInThisContext(readFileSync(join(dir, '../zh.js'), 'utf8'), { filename: 'zh.js' });
+runInThisContext(readFileSync(join(dir, '../i18n.js'), 'utf8'), { filename: 'i18n.js' });
 runInThisContext(readFileSync(join(dir, '../local/userErrors.js'), 'utf8'), {
   filename: 'user-errors.js',
 });
@@ -23,7 +25,7 @@ function assertNoTech(userMsg) {
 
 test('localOnlyFailure：GPU 原文不露出', () => {
   const msg = U.localOnlyFailure(new Error('no available backend found. ERR: [webgpu] Failed to get GPU adapter'));
-  assert.match(msg, /on-device only/i);
+  assert.equal(msg, 'This computer cannot run the on-device model.');
   assertNoTech(msg);
 });
 
@@ -33,21 +35,26 @@ test('localOnlyBlock：未 Prepare', () => {
   assert.match(msg, /Prepare/i);
 });
 
+test('localOnlyBlock：没有 WebGPU 只报短句，不改偏好文案', () => {
+  const msg = U.localOnlyBlock({ pref: 'local', webgpuOk: false, ready: true });
+  assert.equal(msg, 'This computer cannot run the on-device model.');
+});
+
 test('pageAnalyzeError：正文与高亮类', () => {
   assert.equal(
     U.pageAnalyzeError('No tokens mapped onto the page'),
-    'Nothing here could be highlighted. Try turning off “Main article only”, or use a simpler page.',
+    'Could not extract content from this page.',
   );
   assert.equal(
     U.pageAnalyzeError('token offset align failed'),
-    'Nothing here could be highlighted. Try turning off “Main article only”, or use a simpler page.',
+    'Could not extract content from this page.',
   );
   assert.equal(U.pageAnalyzeError('No article text'), 'No readable article text on this page.');
 });
 
 test('pageAnalyzeError：网络与云端', () => {
   const net = U.pageAnalyzeError('Failed to fetch');
-  assert.equal(net, 'Cannot reach the analyze server.');
+  assert.equal(net, 'Cannot reach the analyze server. Try again later.');
   assertNoTech(net);
   const http = U.pageAnalyzeError('HTTP 502: expected application/json, got text/html');
   assert.equal(http, 'The analyze server returned an error. Try again later.');
@@ -63,6 +70,14 @@ test('pageAnalyzeError：本机与扩展通道', () => {
   );
   assert.match(port, /refresh/i);
   assertNoTech(port);
+});
+
+test('isRetryable：连不上、上游错误、未知失败可以重试', () => {
+  assert.equal(U.isRetryable('Failed to fetch'), true);
+  assert.equal(U.isRetryable('HTTP 502: expected application/json, got text/html'), true);
+  assert.equal(U.isRetryable('IH_appendProgress before IH_bindProgress'), true);
+  assert.equal(U.isRetryable('No article text'), false);
+  assert.equal(U.isRetryable('no available backend found. ERR: [webgpu] Failed to get GPU adapter'), false);
 });
 
 test('pageAnalyzeError：未知错误不泄露原文', () => {

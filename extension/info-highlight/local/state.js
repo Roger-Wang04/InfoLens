@@ -8,10 +8,12 @@ globalThis.IH_localState ||= (function () {
   const PREF_LOCAL = 'local';
   const HUB_HUGGINGFACE = 'huggingface';
   const HUB_MODELSCOPE = 'modelscope';
+  const CLOUD_QWEN = 'qwen3-0.6b';
   const CLOUD_GEMMA = 'gemma-3-270m';
+  const CLOUD_DEFAULT = CLOUD_QWEN;
   const CLOUD_MODELS = Object.freeze([
+    { id: CLOUD_QWEN, label: 'Qwen3 0.6B' },
     { id: CLOUD_GEMMA, label: 'Gemma 3 270M' },
-    { id: 'qwen3-0.6b', label: 'Qwen3 0.6B' },
   ]);
   const CLOUD_MODEL_IDS = new Set(CLOUD_MODELS.map((m) => m.id));
   const KEYS = {
@@ -49,7 +51,7 @@ globalThis.IH_localState ||= (function () {
           [KEYS.pref]: PREF_AUTO,
           [KEYS.ready]: false,
           [KEYS.hub]: HUB_HUGGINGFACE,
-          [KEYS.cloudModel]: CLOUD_GEMMA,
+          [KEYS.cloudModel]: CLOUD_DEFAULT,
         },
         (res) => {
           if (chrome.runtime.lastError) {
@@ -107,7 +109,7 @@ globalThis.IH_localState ||= (function () {
   }
 
   function normalizeCloudModel(id) {
-    return CLOUD_MODEL_IDS.has(id) ? id : CLOUD_GEMMA;
+    return CLOUD_MODEL_IDS.has(id) ? id : CLOUD_DEFAULT;
   }
 
   function hubOrigins(h) {

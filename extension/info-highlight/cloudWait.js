@@ -1,10 +1,11 @@
 /**
  * 云端 Analyze 冷启动时，这一次请求会等到容器起来再返回。
  * 一轮里第一次分析若超过 FIRST_SEGMENT_WAIT_MS 仍未返回，再显示冷启动条。
+ * Continue 也算新的一轮（调用方重新置 armFirstAnalyze）。
  */
 globalThis.IH_cloudWait ||= (function () {
   const FIRST_SEGMENT_WAIT_MS = 2000;
-  const LABEL_BASE = 'Cold starting';
+  const LABEL_BASE = globalThis.IH_i18n.tr('Cold starting');
   const DOT_INTERVAL_MS = 400;
 
   /** @param {number} [dotIndex] 0→`.` 1→`..` 2→`...`，循环 */

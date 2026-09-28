@@ -12,7 +12,7 @@ EXTENSIONS = Path(__file__).resolve().parents[1]
 SHARED = EXTENSIONS / "shared"
 LOCALES = "_locales"  # 由 merge_locales 独占产出，不走通用拷贝
 FLATTEN = "page/"  # 注入宿主页的脚本平铺到包根，迁就 background.js 里 CONTENT_JS 的路径
-SKIP_DIRS = {LOCALES, "dist", "e2e", "node_modules", "test"}
+SKIP_DIRS = {LOCALES, "dist", "e2e", "local-samples", "node_modules", "test"}
 SKIP_NAMES = {
     ".DS_Store", "package.json", "package-lock.json",
     "config.js", "config.secrets.js",
@@ -151,10 +151,14 @@ def build(name: str, release: bool) -> Path:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("name", choices=extension_names())
+    parser.add_argument(
+        "name", nargs="?", choices=extension_names(),
+        help="插件名；省略则构建全部",
+    )
     parser.add_argument(
         "--release", action="store_true",
         help="上架构建：写入空 config.js，不带本地调试配置",
     )
     args = parser.parse_args()
-    build(args.name, args.release)
+    for name in ([args.name] if args.name else extension_names()):
+        build(name, args.release)

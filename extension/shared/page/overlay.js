@@ -34,6 +34,7 @@ globalThis.IL_overlay ||= (() => {
    *   detail?: string,
    *   tone?: 'error' | 'info',
    *   continueHidden?: boolean,
+   *   continueLabel?: string,
    *   feedbackHidden?: boolean,
    *   onContinue?: () => void,
    *   onClose?: () => void,
@@ -73,9 +74,10 @@ globalThis.IL_overlay ||= (() => {
     const continueBtn = document.createElement('button');
     continueBtn.type = 'button';
     continueBtn.className = 'semantic-find-status-continue';
-    continueBtn.title = 'Continue';
-    continueBtn.setAttribute('aria-label', 'Continue');
-    continueBtn.textContent = 'Continue';
+    const continueLabel = String(opts.continueLabel || '').trim() || 'Continue';
+    continueBtn.title = continueLabel;
+    continueBtn.setAttribute('aria-label', continueLabel);
+    continueBtn.textContent = continueLabel;
     continueBtn.hidden = opts.continueHidden !== false;
     if (opts.onContinue) continueBtn.addEventListener('click', opts.onContinue);
 

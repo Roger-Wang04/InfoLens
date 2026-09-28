@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { runInThisContext } from 'node:vm';
 
 const dir = dirname(fileURLToPath(import.meta.url));
+runInThisContext(readFileSync(join(dir, '../zh.js'), 'utf8'), { filename: 'zh.js' });
+runInThisContext(readFileSync(join(dir, '../i18n.js'), 'utf8'), { filename: 'i18n.js' });
 runInThisContext(readFileSync(join(dir, '../cloudWait.js'), 'utf8'), { filename: 'cloudWait.js' });
 
 const wait = globalThis.IH_cloudWait;

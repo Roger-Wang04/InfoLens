@@ -14,6 +14,8 @@ globalThis.chrome = {
   },
 };
 
+runInThisContext(readFileSync(join(dir, '../highlightStyle.js'), 'utf8'), { filename: 'highlightStyle.js' });
+runInThisContext(readFileSync(join(dir, '../optionDefaults.js'), 'utf8'), { filename: 'optionDefaults.js' });
 runInThisContext(readFileSync(join(dir, '../tokenTip.js'), 'utf8'), { filename: 'tokenTip.js' });
 
 const label = globalThis.IH_tokenTip.deviceLabel;

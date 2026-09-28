@@ -42,7 +42,9 @@
       padding: 16px 24px;
     }
     .top-icon { flex-shrink: 0; width: 40px; height: 40px; border-radius: 8px; }
+    .top-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
     .top-name { font-size: 22px; font-weight: 600; }
+    .top-version { color: var(--muted); font-size: 13px; font-weight: 400; }
     main { max-width: 680px; margin: 0 auto; padding: 28px 24px 64px; }
     h2 {
       font-size: 1.05rem;
@@ -82,7 +84,10 @@
   <header class="top">
     <div class="top-inner">
       <img id="brand_icon" class="top-icon" width="40" height="40" alt="">
-      <span id="brand_name" class="top-name"></span>
+      <span class="top-title">
+        <span id="brand_name" class="top-name"></span>
+        <span id="brand_version" class="top-version"></span>
+      </span>
     </div>
   </header>
   <main>

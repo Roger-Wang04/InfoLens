@@ -24,11 +24,32 @@
     return el;
   }
 
+  function syncNavDots() {
+    for (const a of document.querySelectorAll('.side-nav a')) {
+      const id = (a.getAttribute('href') || '').slice(1);
+      const section = id ? document.getElementById(id) : null;
+      const on = !!section?.querySelector(`.${CLASS}:not([hidden])`);
+      a.classList.toggle('nav-is-new', on);
+    }
+  }
+
+  function watchNavDots() {
+    const main = document.querySelector('main');
+    if (!document.querySelector('.side-nav') || !main) return;
+    syncNavDots();
+    new MutationObserver(syncNavDots).observe(main, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'hidden'],
+    });
+  }
+
   function paint(unseen) {
     const set = new Set(unseen);
     for (const id of catalog) {
       rowFor(id).classList.toggle(CLASS, set.has(id));
     }
+    syncNavDots();
   }
 
   /** 一半可见，或在顶/底已无法再露出更多时也算「足够可见」 */
@@ -113,6 +134,8 @@
       session?.applyPaused();
     },
   };
+
+  watchNavDots();
 
   void attention.unseen(catalog).then((unseen) => {
     paint(unseen);

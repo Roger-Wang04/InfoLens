@@ -3,14 +3,14 @@
  * 技术细节留在 throw 的 message 里，由用量 / 反馈上报；页内只经 pageAnalyzeError 展示。
  */
 globalThis.IH_userErrors ||= (function () {
+  const { tr } = globalThis.IH_i18n;
   const SWITCH_PREF =
     'In extension options, choose Auto or Cloud only, or tap Prepare for the on-device model.';
 
   const GENERIC_FAIL = 'Analysis could not finish. Try again.';
-  const HIGHLIGHT_FAIL =
-    'Nothing here could be highlighted. Try turning off “Main article only”, or use a simpler page.';
+  const HIGHLIGHT_FAIL = 'Could not extract content from this page.';
   const SERVER_FAIL = 'The analyze server returned an error. Try again later.';
-  const NETWORK_FAIL = 'Cannot reach the analyze server.';
+  const NETWORK_FAIL = 'Cannot reach the analyze server. Try again later.';
   const PAGE_LOST =
     'Connection to this page was lost. Refresh the page and try again.';
   const PAGE_CHANGED = 'The page changed while highlighting. Run analysis again.';
@@ -80,7 +80,7 @@ globalThis.IH_userErrors ||= (function () {
       || /on-device analysis/i.test(t)
       || /cannot reach the analyze server/i.test(t)
       || /analyze server returned an error/i.test(t)
-      || /nothing here could be highlighted/i.test(t)
+      || /could not extract content from this page/i.test(t)
       || /could not find a main article/i.test(t)
       || /could not read this page/i.test(t)
       || /no readable article text/i.test(t)
@@ -111,9 +111,7 @@ globalThis.IH_userErrors ||= (function () {
 
   function localOnlyBlock(st) {
     if (st.pref !== 'local' && st.pref !== globalThis.IH_localState?.PREF_LOCAL) return '';
-    if (st.webgpuOk === false) {
-      return `This computer cannot run the on-device model, and you chose on-device only. ${SWITCH_PREF}`;
-    }
+    if (st.webgpuOk === false) return gpuUnavailableShort();
     if (!st.ready) {
       return `The on-device model is not ready, and you chose on-device only. ${SWITCH_PREF}`;
     }
@@ -124,9 +122,7 @@ globalThis.IH_userErrors ||= (function () {
     const raw = norm(err?.message || err);
     const content = contentMessage(raw);
     if (content) return content;
-    if (isGpuRelated(raw)) {
-      return `This computer cannot run the on-device model, and you chose on-device only. ${SWITCH_PREF}`;
-    }
+    if (isGpuRelated(raw)) return gpuUnavailableShort();
     if (isNetworkRelated(raw)) {
       return `On-device analysis could not finish (network). ${SWITCH_PREF}`;
     }
@@ -142,15 +138,10 @@ globalThis.IH_userErrors ||= (function () {
     return `On-device analysis did not finish. ${SWITCH_PREF}`;
   }
 
-  function webgpuStatusLine(pref, webgpuOk) {
-    const localOnly = pref === 'local' || pref === globalThis.IH_localState?.PREF_LOCAL;
-    if (webgpuOk === true) return 'Available';
-    if (webgpuOk === false) {
-      return localOnly
-        ? 'Not available. On-device only cannot use the cloud.'
-        : 'Not available; Auto and Cloud only use the cloud.';
-    }
-    return 'Not checked yet';
+  function webgpuStatusLine(webgpuOk) {
+    if (webgpuOk === true) return tr('Available');
+    if (webgpuOk === false) return tr('Not available');
+    return tr('Not checked yet');
   }
 
   function setLocalPrefBlocked() {
@@ -198,6 +189,12 @@ globalThis.IH_userErrors ||= (function () {
     return GENERIC_FAIL;
   }
 
+  /** 再跑一次可能成功：连不上、上游错误、以及归不成具体原因的失败。 */
+  function isRetryable(msg) {
+    const shown = pageAnalyzeError(msg);
+    return shown === NETWORK_FAIL || shown === SERVER_FAIL || shown === GENERIC_FAIL;
+  }
+
   return {
     localOnlyBlock,
     localOnlyFailure,
@@ -205,6 +202,7 @@ globalThis.IH_userErrors ||= (function () {
     setLocalPrefBlocked,
     gpuUnavailableShort,
     pageAnalyzeError,
+    isRetryable,
     isGpuRelated,
   };
 })();

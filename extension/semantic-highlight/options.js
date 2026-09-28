@@ -9,21 +9,25 @@
 
   const iconEl = document.getElementById('brand_icon');
   const brandEl = document.getElementById('brand_name');
+  const versionEl = document.getElementById('brand_version');
   const descEl = document.getElementById('cache_desc');
   const clearBtn = document.getElementById('cache_clear');
-  if (!iconEl || !brandEl || !descEl || !clearBtn) {
+  if (!iconEl || !brandEl || !versionEl || !descEl || !clearBtn) {
     throw new Error('options page missing required elements');
   }
 
   const manifest = chrome.runtime.getManifest();
   const name = manifest.name;
+  const version = manifest.version;
   const iconRel = manifest.icons?.['48'] || manifest.icons?.['32'] || manifest.icons?.['128'];
   if (!name) throw new Error('manifest name missing');
+  if (!version) throw new Error('manifest version missing');
   if (!iconRel) throw new Error('manifest icons missing');
   document.title = name;
   iconEl.src = iconRel;
   iconEl.alt = name;
   brandEl.textContent = name;
+  versionEl.textContent = version;
 
   function formatBytes(n) {
     if (!Number.isFinite(n) || n < 0) throw new Error(`bad cache size: ${n}`);

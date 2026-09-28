@@ -57,6 +57,7 @@ globalThis.IH_analyzeCache ||= (function () {
    * @param {string} text
    * @param {(text: string) => Promise<unknown[]>} send
    * @param {{ skip?: boolean }} [opts]
+   * skip：不读也不写。Force 走这条。缓存键只有正文，写回去会盖掉另一次分析的结果。
    */
   async function tokens(text, send, opts) {
     await invalidateIfStale();
@@ -67,7 +68,9 @@ globalThis.IH_analyzeCache ||= (function () {
     }
     const incoming = await send(text);
     const slim = slimTokens(incoming);
-    await store.put({ [sk]: slim, [store.META_KEY]: { v: PLUGIN_CACHE_VERSION } });
+    if (!opts?.skip) {
+      await store.put({ [sk]: slim, [store.META_KEY]: { v: PLUGIN_CACHE_VERSION } });
+    }
     return slim.map((row, i) => ({
       ...row,
       raw: typeof incoming[i].raw === 'string' ? incoming[i].raw : '',

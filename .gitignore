@@ -19,6 +19,7 @@ client/dist/
 client/dist-github_pages/
 client/dist-cf/
 extension/dist/
+extension/info-highlight/local-samples/
 extension/semantic-highlight/config.js
 extension/info-highlight/config.js
 extension/semantic-highlight/config.secrets.js

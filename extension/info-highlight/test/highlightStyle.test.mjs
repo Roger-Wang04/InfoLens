@@ -9,8 +9,13 @@ import { fileURLToPath } from 'node:url';
 import { runInThisContext } from 'node:vm';
 
 const dir = dirname(fileURLToPath(import.meta.url));
+runInThisContext(readFileSync(join(dir, '../zh.js'), 'utf8'), { filename: 'zh.js' });
+runInThisContext(readFileSync(join(dir, '../i18n.js'), 'utf8'), { filename: 'i18n.js' });
 runInThisContext(readFileSync(join(dir, '../highlightStyle.js'), 'utf8'), {
   filename: 'highlightStyle.js',
+});
+runInThisContext(readFileSync(join(dir, '../optionDefaults.js'), 'utf8'), {
+  filename: 'optionDefaults.js',
 });
 const HS = globalThis.IH_highlightStyle;
 
@@ -51,13 +56,14 @@ test('depth ↔ maxAlpha：100% = PAINT_CAP[形式]', () => {
   assert.equal(HS.PAINT_CAP.block, 0.5);
   assert.equal(HS.PAINT_CAP.underline, 1);
   assert.equal(HS.PAINT_CAP.text, 1);
-  assert.equal(HS.depthToMaxAlpha(100), 0.5);
-  assert.equal(HS.depthToMaxAlpha(50), 0.25);
+  assert.equal(HS.depthToMaxAlpha(100, 'block'), 0.5);
+  assert.equal(HS.depthToMaxAlpha(50, 'block'), 0.25);
+  assert.equal(HS.depthToMaxAlpha(100), 1);
   assert.equal(HS.depthToMaxAlpha(100, 'underline'), 1);
   assert.equal(HS.depthToMaxAlpha(50, 'underline'), 0.5);
   assert.equal(HS.depthToMaxAlpha(100, 'text'), 1);
   assert.equal(HS.depthToMaxAlpha(50, 'text'), 0.5);
-  assert.equal(HS.depthToMaxAlpha(150), 0.75);
+  assert.equal(HS.depthToMaxAlpha(150, 'block'), 0.75);
   assert.equal(HS.depthToMaxAlpha(150, 'underline'), 1);
   assert.equal(HS.depthToMaxAlpha(150, 'text'), 1);
   assert.equal(HS.clampMaxAlphaDepth(1), HS.INTENSITY_MIN);
@@ -67,6 +73,13 @@ test('depth ↔ maxAlpha：100% = PAINT_CAP[形式]', () => {
   assert.equal(HS.clampThresholdPct(150), 100);
 });
 
+test('缺键用默认，存过的 false 留着', () => {
+  assert.equal(globalThis.IH_optionStored('show_token_tip', undefined), true);
+  assert.equal(globalThis.IH_optionStored('show_token_tip', false), false);
+  assert.equal(globalThis.IH_optionStored('ih_article_only', undefined), false);
+  assert.equal(globalThis.IH_optionStored('ih_article_only', true), true);
+});
+
 test('normalizePrefs 填默认', () => {
   const p = HS.normalizePrefs({});
   assert.equal(p.twoTier, false);
@@ -74,7 +87,8 @@ test('normalizePrefs 填默认', () => {
   assert.equal(p.maxAlphaDepth, 100);
   assert.equal(p.fadeMinPct, HS.FADE_MIN_DEFAULT);
   assert.equal(p.fadeNorm, false);
-  assert.equal(p.paintStyle, HS.PAINT_BLOCK);
+  assert.equal(p.fadeNormPct, 10);
+  assert.equal(p.paintStyle, HS.PAINT_FADE);
   assert.equal(p.highlightColor, HS.HUE_RED);
   assert.equal(p.textColor, 'red');
 });
@@ -96,11 +110,15 @@ test('淡去：档位不过滤，最重要的字始终 1，下限只有 0 才全
 });
 
 test('淡去归一化：前 20% 文字的惊讶度落到最强档，其下线性铺开', () => {
-  assert.equal(HS.FADE_NORM_TOP, 0.2);
+  assert.equal(HS.FADE_NORM_PCT_DEFAULT, 10);
+  assert.equal(HS.clampFadeNormPct(0), 1);
+  assert.equal(HS.clampFadeNormPct(80), 50);
+  assert.equal(HS.formatFadeNormLabel(20), '20% at full highlight');
   const samples = [];
   for (let i = 0; i < 8; i++) samples.push({ bits: 1, weight: 10 });
   samples.push({ bits: 8, weight: 10 }, { bits: 8, weight: 10 });
-  const scale = HS.fadeNormScaleBits(samples);
+  const scale = HS.fadeNormScaleBits(samples, 20);
+  assert.equal(HS.fadeNormScaleBits(samples, 50), 1);
   assert.equal(scale, 8);
   assert.equal(HS.tokenLevelForFade(8, scale), HS.TOKEN_LEVELS - 1);
   assert.equal(HS.tokenLevelForFade(8.5, scale), HS.TOKEN_LEVELS - 1);
@@ -163,13 +181,13 @@ test('字色：一色相一颗；未知 id 回红', () => {
   assert.equal(HS.normalizePrefs({ [HS.KEY_TEXT_COLOR]: 'green' }).textColor, 'green');
 });
 
-test('normalizePaintStyle：未知值回块', () => {
+test('normalizePaintStyle：未知值回淡去，顺序是淡去、字色、下划线、色块', () => {
   assert.equal(HS.normalizePaintStyle('underline'), HS.PAINT_UNDERLINE);
   assert.equal(HS.normalizePaintStyle('block'), HS.PAINT_BLOCK);
   assert.equal(HS.normalizePaintStyle('text'), HS.PAINT_TEXT);
   assert.equal(HS.normalizePaintStyle('fade'), HS.PAINT_FADE);
-  assert.equal(HS.normalizePaintStyle('nope'), HS.PAINT_BLOCK);
-  assert.deepEqual([...HS.PAINT_STYLES], ['block', 'underline', 'text', 'fade']);
+  assert.equal(HS.normalizePaintStyle('nope'), HS.PAINT_FADE);
+  assert.deepEqual([...HS.PAINT_STYLES], ['fade', 'text', 'underline', 'block']);
 });
 
 test('resolvePaintStyle：PDF 色块/字色/淡去回退下划线，网页不回退', () => {

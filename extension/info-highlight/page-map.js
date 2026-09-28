@@ -12,13 +12,18 @@
   if (!globalThis.IH_highlightStyle) {
     throw new Error('IH_highlightStyle missing — inject highlightStyle.js first');
   }
+  if (!globalThis.IH_optionDefaults || typeof globalThis.IH_optionStored !== 'function') {
+    throw new Error('IH_optionDefaults missing — inject optionDefaults.js first');
+  }
   if (typeof globalThis.IH_mergeWordTokens !== 'function') {
     throw new Error('IH_mergeWordTokens missing — inject wordMerge.js first');
   }
   if (!globalThis.IH_cloudWait) {
     throw new Error('IH_cloudWait missing — inject cloudWait.js first');
   }
+  const { tr } = globalThis.IH_i18n;
   const HS = globalThis.IH_highlightStyle;
+  const optionStored = globalThis.IH_optionStored;
   /** SYNC: client/src/shared/core/constants.ts → SEMANTIC_CHUNK_BYTES */
   const UNIT_BYTES = 800;
   const UNIT_MULTIPLIER = 2;
@@ -90,8 +95,8 @@
 
   const KEY_ARTICLE_ONLY = 'ih_article_only';
   const KEY_WORD_MERGE = 'ih_word_merge';
-  let articleOnly = true;
-  let wordMerge = false;
+  let articleOnly = globalThis.IH_optionDefaults[KEY_ARTICLE_ONLY];
+  let wordMerge = globalThis.IH_optionDefaults[KEY_WORD_MERGE];
 
   function extractPage() {
     requireFns();
@@ -343,8 +348,8 @@
   /** @type {{ tokens: unknown[], mapped: { text: string, pieces: unknown[], root?: Element } | null, overlay: boolean }} */
   let paintBuf = { tokens: [], mapped: null, overlay: false };
 
-  /** @type {{ twoTier: boolean, thresholdPct: number, maxAlphaDepth: number, fadeMinPct: number, fadeNorm: boolean, paintStyle: string }} */
-  let highlightPrefs = HS.normalizePrefs(HS.STORAGE_DEFAULTS);
+  /** @type {{ twoTier: boolean, thresholdPct: number, maxAlphaDepth: number, fadeMinPct: number, fadeNorm: boolean, fadeNormPct: number, paintStyle: string }} */
+  let highlightPrefs = HS.normalizePrefs(globalThis.IH_optionDefaults);
   /** 整页分析结束后才有值；流式绘制仍走绝对刻度 */
   let fadeScaleBits = null;
   let fadeNormReady = false;
@@ -491,7 +496,7 @@
       if (bits == null || !(weight > 0)) continue;
       samples.push({ bits, weight });
     }
-    const scale = HS.fadeNormScaleBits(samples);
+    const scale = HS.fadeNormScaleBits(samples, highlightPrefs.fadeNormPct);
     if (scale == null) return false;
     fadeScaleBits = scale;
     repaintFromBuffer();
@@ -616,6 +621,7 @@
       else stats.painted += n;
     }
     if (overlayParent) overlay.root.appendChild(overlayParent);
+    if (!opts?.overlay && stats.painted > 0) maybeShowFadeDefaultNotice();
     return stats;
   }
 
@@ -639,6 +645,7 @@
     const colorChanged = !fadeInvolved && (next.highlightColor !== highlightPrefs.highlightColor
       || next.textColor !== highlightPrefs.textColor);
     const normChanged = next.fadeNorm !== highlightPrefs.fadeNorm;
+    const normPctChanged = next.fadeNormPct !== highlightPrefs.fadeNormPct;
     if (normChanged && !next.fadeNorm) fadeScaleBits = null;
     highlightPrefs = next;
     applyTokenColors();
@@ -656,17 +663,11 @@
       next.fadeNorm
       && next.paintStyle === HS.PAINT_FADE
       && fadeNormReady
-      && (normChanged || paintStyleChanged)
+      && (normChanged || paintStyleChanged || normPctChanged)
     ) {
       applyFadeNorm();
     }
   }
-
-  const prefsDefaults = {
-    ...HS.STORAGE_DEFAULTS,
-    [KEY_ARTICLE_ONLY]: true,
-    [KEY_WORD_MERGE]: false,
-  };
 
   const prefsReady = new Promise((resolve) => {
     const get = chrome.storage?.local?.get;
@@ -674,20 +675,20 @@
       resolve();
       return;
     }
-    get.call(chrome.storage.local, prefsDefaults, (res) => {
+    get.call(chrome.storage.local, globalThis.IH_optionDefaults, (res) => {
       applyHighlightPrefs(res);
-      articleOnly = res?.[KEY_ARTICLE_ONLY] !== false;
-      wordMerge = res?.[KEY_WORD_MERGE] === true;
+      articleOnly = optionStored(KEY_ARTICLE_ONLY, res?.[KEY_ARTICLE_ONLY]);
+      wordMerge = optionStored(KEY_WORD_MERGE, res?.[KEY_WORD_MERGE]);
       resolve();
     });
   });
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area && area !== 'local') return;
     if (KEY_ARTICLE_ONLY in changes) {
-      articleOnly = changes[KEY_ARTICLE_ONLY].newValue !== false;
+      articleOnly = optionStored(KEY_ARTICLE_ONLY, changes[KEY_ARTICLE_ONLY].newValue);
     }
     if (KEY_WORD_MERGE in changes) {
-      const next = changes[KEY_WORD_MERGE].newValue === true;
+      const next = optionStored(KEY_WORD_MERGE, changes[KEY_WORD_MERGE].newValue);
       if (next !== wordMerge) {
         wordMerge = next;
         if (paintBuf.mapped && paintBuf.tokens.length) {
@@ -705,13 +706,14 @@
       && !(HS.KEY_MAX_ALPHA_DEPTH in changes)
       && !(HS.KEY_FADE_MIN_PCT in changes)
       && !(HS.KEY_FADE_NORM in changes)
+      && !(HS.KEY_FADE_NORM_PCT in changes)
       && !(HS.KEY_PAINT_STYLE in changes)
       && !(HS.KEY_HIGHLIGHT_COLOR in changes)
       && !(HS.KEY_TEXT_COLOR in changes)
     ) {
       return;
     }
-    chrome.storage.local.get(HS.STORAGE_DEFAULTS, (res) => {
+    chrome.storage.local.get(globalThis.IH_optionDefaults, (res) => {
       applyHighlightPrefs(res);
     });
   });
@@ -734,7 +736,7 @@
     }
     let t = String(msg || 'Analyze failed').replace(/\s+/g, ' ').trim();
     if (/Failed to fetch|NetworkError|ERR_CONNECTION/i.test(t)) {
-      t = 'Cannot reach the analyze server';
+      t = 'Cannot reach the analyze server. Try again later.';
     }
     return t.length > 120 ? t.slice(0, 119) + '…' : t;
   }
@@ -814,18 +816,81 @@
     list.replaceChildren();
   }
 
+  /** SYNC: background.js FADE_DEFAULT_NOTICE */
+  const FADE_DEFAULT_NOTICE = 'ih_fade_default_notice';
+  let fadeNoticeChecked = false;
+
+  function maybeShowFadeDefaultNotice() {
+    if (fadeNoticeChecked) return;
+    fadeNoticeChecked = true;
+    chrome.storage.local.get([FADE_DEFAULT_NOTICE, HS.KEY_PAINT_STYLE], (res) => {
+      if (res?.[FADE_DEFAULT_NOTICE] !== 'pending' || HS.PAINT_STYLES.includes(res?.[HS.KEY_PAINT_STYLE])) {
+        if (res?.[FADE_DEFAULT_NOTICE] === 'pending') {
+          chrome.storage.local.set({ [FADE_DEFAULT_NOTICE]: 'seen' });
+        }
+        return;
+      }
+      void showFadeDefaultNotice();
+    });
+  }
+
+  function dismissFadeDefaultNotice() {
+    fadeNoticeChecked = true;
+    chrome.storage.local.set({ [FADE_DEFAULT_NOTICE]: 'seen' });
+    ui$('ih-status-list')?.parentElement?.querySelector('[data-ih-fade-notice]')?.remove();
+  }
+
+  async function showFadeDefaultNotice() {
+    const list = await noticeList();
+    const parent = list.parentElement;
+    if (!parent || parent.querySelector('[data-ih-fade-notice]')) return;
+    fadeNoticeChecked = true;
+    const el = requireOverlay().createStatus({
+      label: tr('Highlight'),
+      detail: tr('The default style is now "Fade".'),
+      tone: 'info',
+      continueHidden: true,
+      feedbackHidden: true,
+    });
+    el.dataset.ihFadeNotice = '1';
+    el.querySelector('.semantic-find-status-close')?.remove();
+    const actions = el.querySelector('.semantic-find-status-actions');
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'semantic-find-status-continue';
+    ok.textContent = tr('OK');
+    ok.addEventListener('click', dismissFadeDefaultNotice);
+    const settings = document.createElement('button');
+    settings.type = 'button';
+    settings.className = 'semantic-find-status-continue';
+    settings.textContent = tr('Go to settings');
+    settings.addEventListener('click', () => {
+      dismissFadeDefaultNotice();
+      chrome.runtime.sendMessage({ type: 'ih-open-highlight-options' });
+    });
+    actions?.append(settings, ok);
+    parent.insertBefore(el, list);
+  }
+
   async function showError(msg) {
     invalidateCloudWait();
     const ctx = globalThis.IH_feedbackContext;
     if (ctx && !ctx.peek()) ctx.stashMinimal(msg, 'web');
     const userDetail = shortError(msg);
+    const retry = globalThis.IH_userErrors?.isRetryable?.(msg) === true
+      && typeof globalThis.IH_retryAnalyze === 'function';
     const list = await noticeList();
     const el = requireOverlay().createStatus({
-      label: 'Failed',
+      label: tr('Failed'),
       detail: userDetail,
       tone: 'error',
-      continueHidden: true,
+      continueHidden: !retry,
+      continueLabel: retry ? tr('Retry') : undefined,
       feedbackHidden: false,
+      onContinue: retry ? () => {
+        clearError();
+        globalThis.IH_retryAnalyze();
+      } : undefined,
       onClose: clearError,
     });
     attachErrorFeedback(el, userDetail);
@@ -836,8 +901,9 @@
     invalidateCloudWait();
     const list = await noticeList();
     list.replaceChildren(requireOverlay().createStatus({
-      label: 'Paused',
-      detail: 'Continue to highlight more',
+      label: tr('Paused'),
+      detail: tr('Continue to highlight more'),
+      continueLabel: tr('Continue'),
       continueHidden: false,
       feedbackHidden: true,
       onContinue: () => {
@@ -860,13 +926,13 @@
   /** @type {{ start: number, end: number, bits: number }[]} */
   let progressRows = [];
   let progressSearching = false;
-  let progressEnabled = false;
-  chrome.storage?.local?.get({ show_progress: false }, (res) => {
-    progressEnabled = !!res?.show_progress;
+  let progressEnabled = globalThis.IH_optionDefaults.show_progress;
+  chrome.storage?.local?.get(globalThis.IH_optionDefaults, (res) => {
+    progressEnabled = optionStored('show_progress', res?.show_progress);
   });
   chrome.storage?.onChanged?.addListener((changes) => {
     if ('show_progress' in changes) {
-      progressEnabled = !!changes.show_progress.newValue;
+      progressEnabled = optionStored('show_progress', changes.show_progress.newValue);
       renderProgress();
     }
   });

@@ -18,14 +18,21 @@ importScripts('pdf/sw.js');
 importScripts('cache/ring-store.js');
 importScripts('analyzeCache.js');
 importScripts('local/state.js');
+importScripts('highlightStyle.js');
+importScripts('optionDefaults.js');
+importScripts('zh.js');
+importScripts('i18n.js');
 importScripts('local/userErrors.js');
 importScripts('cloudWait.js');
 importScripts('init-window-bounds.js');
 importScripts('action-state.js');
 
 const EXTENSION_ID = 'info-highlight';
+const { tr } = IH_i18n;
 
 if (!globalThis.IH_localState) throw new Error('IH_localState missing');
+if (!globalThis.IH_highlightStyle) throw new Error('IH_highlightStyle missing');
+if (!globalThis.IH_optionDefaults) throw new Error('IH_optionDefaults missing');
 if (!globalThis.IH_userErrors) throw new Error('IH_userErrors missing');
 if (!globalThis.IH_cloudWait) throw new Error('IH_cloudWait missing');
 if (!globalThis.IH_analyzeCache) throw new Error('IH_analyzeCache missing');
@@ -56,12 +63,17 @@ const CONTENT_JS = [
   'statusFeedback.js',
   'feedbackContext.js',
   'highlightStyle.js',
+  'optionDefaults.js',
   'wordMerge.js',
+  'zh.js',
+  'i18n.js',
   'local/userErrors.js',
   'cloudWait.js',
   'page-map.js',
   'tokenTip.js',
   'analyzeRun.js',
+  'auto-sites.js',
+  'auto-nudge.js',
   'content.js',
 ];
 
@@ -70,14 +82,15 @@ const CONTENT_JS = [
  * live / stale / empty。重载后旧隔离世界互不可见，只能靠标记。
  * SYNC: content.js 的 data-ih-cs。PDF 入口节点由 entry.js 同 id 回收，不当 stale。
  * @param {'toggle' | 'start' | 'force' | ''} [method]
+ * @param {string} [cloudModel] force 时钉住的云端模型 id；空则走当前偏好
  * @returns {Promise<{ state: 'live' | 'stale' | 'empty', result?: unknown }>}
  */
-async function pageCsPeek(tabId, method) {
+async function pageCsPeek(tabId, method, cloudModel) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId, frameIds: [0] },
-      args: [method || ''],
-      func: (m) => {
+      args: [method || '', typeof cloudModel === 'string' ? cloudModel : ''],
+      func: (m, model) => {
         const demo = window.__IH_DEMO__;
         const pdf = window.__IH_PDF_ENTRY__;
         let live = false;
@@ -98,7 +111,7 @@ async function pageCsPeek(tabId, method) {
             return { state: 'live', result: demo.start() };
           }
           if (m === 'force' && typeof demo?.force === 'function') {
-            demo.force();
+            demo.force(model);
             return { state: 'live', result: true };
           }
           if (m === 'toggle' && typeof demo?.toggle === 'function') {
@@ -157,8 +170,9 @@ async function setBadgeError(tabId, brief) {
   }
 }
 
-async function activateTab(tab, force) {
+async function activateTab(tab, force, cloudModel) {
   if (!tab?.id) return;
+  const pinned = force ? knownCloudModel(cloudModel) : '';
   // optional file:// request 必须在手势同步阶段启动；前面不能有 await
   const fileHostPromise = IL_pdfSw.isFileUrl(tab.url) ? IL_pdfSw.requestFileHostFromGesture() : null;
   IL_setActionIconDotted(false);
@@ -173,7 +187,11 @@ async function activateTab(tab, force) {
     if (IL_pdfSw.isOwnViewerUrl(url)) {
       IH_actionState.markAnalyzingIfIdle(tab.id);
       const ok = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: force ? 'ih-pdf-force' : 'ih-pdf-toggle', tabId: tab.id }, (res) => {
+        chrome.runtime.sendMessage({
+          type: force ? 'ih-pdf-force' : 'ih-pdf-toggle',
+          tabId: tab.id,
+          ...(pinned ? { cloudModel: pinned } : {}),
+        }, (res) => {
           resolve(!chrome.runtime.lastError && res?.ok === true);
         });
       });
@@ -206,7 +224,7 @@ async function activateTab(tab, force) {
     }
     // 无 .pdf 后缀时先由页内按 Content-Type / 魔数确认，再退回网页管线
     {
-      const peek = await pageCsPeek(tab.id, force ? 'force' : 'toggle');
+      const peek = await pageCsPeek(tab.id, force ? 'force' : 'toggle', pinned);
       if (peek.state === 'stale') {
         await refuseStalePage(tab.id);
         return;
@@ -229,7 +247,7 @@ async function activateTab(tab, force) {
       logLabel: 'Info Highlight',
       waitComplete: false,
     });
-    const after = await pageCsPeek(tab.id, force ? 'force' : 'toggle');
+    const after = await pageCsPeek(tab.id, force ? 'force' : 'toggle', pinned);
     if (after.state !== 'live') {
       await setBadgeError(tab.id, 'inject');
       return;
@@ -252,12 +270,38 @@ async function activateTab(tab, force) {
 
 const CONTEXT_MENU_ID = 'ih-highlight';
 const FORCE_MENU_ID = 'ih-force-analyze';
+const FORCE_MODEL_PREFIX = 'ih-force-model:';
 const AUTO_MENU_ID = 'ih-auto-site';
-const ANALYZE_MENU_TITLE = 'Analyze this page';
-const FORCE_ANALYZE_MENU_TITLE = 'Force analyze this page';
+const OPTIONS_MENU_ID = 'ih-options';
+const ANALYZE_MENU_TITLE = tr('Analyze this page');
+const FORCE_ANALYZE_MENU_TITLE = tr('Reanalyze this page');
+
+function knownCloudModel(id) {
+  if (typeof id !== 'string' || !id) return '';
+  return IH_localState.CLOUD_MODELS.some((m) => m.id === id) ? id : '';
+}
+
+/** SYNC: page-map.js FADE_DEFAULT_NOTICE。没存过形式的升级用户，下次网页高亮时提醒一次。 */
+const FADE_DEFAULT_NOTICE = 'ih_fade_default_notice';
+
+async function armFadeDefaultNotice(details) {
+  const paintKey = IH_highlightStyle.KEY_PAINT_STYLE;
+  const cur = await chrome.storage.local.get([paintKey, FADE_DEFAULT_NOTICE]);
+  const mark = cur[FADE_DEFAULT_NOTICE];
+  if (mark === 'seen' || mark === 'pending') return;
+  const stored = cur[paintKey];
+  const hasStyle = IH_highlightStyle.PAINT_STYLES.includes(stored);
+  if (details.reason === 'install' || hasStyle) {
+    await chrome.storage.local.set({ [FADE_DEFAULT_NOTICE]: 'seen' });
+    return;
+  }
+  if (details.reason === 'update') {
+    await chrome.storage.local.set({ [FADE_DEFAULT_NOTICE]: 'pending' });
+  }
+}
 
 function autoMenuTitle(host, on) {
-  return on ? `Stop always analyzing ${host}` : `Always analyze ${host}`;
+  return on ? tr('Stop always analyzing {host}', { host }) : tr('Always analyze {host}', { host });
 }
 
 /** 人工点过图标的标签：自动分析别再插手，直到下次导航 */
@@ -276,7 +320,7 @@ async function syncAutoMenu(tabId) {
   const host = IH_autoSites.hostOf(tab?.url || '');
   if (!host) {
     // 看不见 url（未授权）或非 http(s)：标题用不到，点下去才从 pageUrl 取 host
-    chrome.contextMenus.update(AUTO_MENU_ID, { title: 'Always analyze this site' }, () => {
+    chrome.contextMenus.update(AUTO_MENU_ID, { title: tr('Always analyze this site') }, () => {
       void chrome.runtime.lastError;
     });
     return;
@@ -287,10 +331,11 @@ async function syncAutoMenu(tabId) {
   });
 }
 
-async function toggleAutoSite(info, tabId) {
-  // 菜单项限定 http(s)，取不到 host 说明有别的问题
-  const host = IH_autoSites.hostOf(info.pageUrl || '');
-  if (!host) throw new Error(`auto-site menu on unsupported url: ${info.pageUrl || '(none)'}`);
+async function toggleAutoSite(info, tabId, tabUrl) {
+  // 网页右键带 pageUrl。图标菜单的点击参数是空的，host 用这次点击授予的 tab.url。
+  const url = info.pageUrl || tabUrl || '';
+  const host = IH_autoSites.hostOf(url);
+  if (!host) throw new Error(`auto-site menu on unsupported url: ${url || '(none)'}`);
   // 手势同步阶段发起；已授权时不弹窗直接 true，故开关两向都先发它
   const requested = chrome.permissions.request({ origins: [IH_autoSites.originPattern(host)] });
   const wasOn = await IH_autoSites.hasExact(host);
@@ -306,7 +351,92 @@ async function toggleAutoSite(info, tabId) {
   await syncAutoMenu(tabId);
 }
 
-/** 导航开始：丢掉本页自动分析进度，否则 analyzing 会挡住下一页 */
+/** 网页里的脚本决定要问时，只负责把窗打开。选择由窗自己写存储。 */
+const NUDGE_WIDTH = 540;
+const NUDGE_HEIGHT = 360;
+const WELCOME_WIDTH = 540;
+const WELCOME_HEIGHT = 360;
+let welcomeWindowId = null;
+/** 打开引导页的选项页窗口；焦点回到该窗时再把引导页拉到前面 */
+let welcomeHostWindowId = null;
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId !== welcomeWindowId) return;
+  welcomeWindowId = null;
+  welcomeHostWindowId = null;
+});
+
+/** @param {number | undefined} hostWindowId 选项页标签所在窗口 */
+async function openWelcomeWindow(hostWindowId) {
+  if (typeof hostWindowId !== 'number') throw new Error('Welcome window requires the options window');
+  if (welcomeWindowId != null) {
+    try {
+      await chrome.windows.update(welcomeWindowId, { focused: true });
+      return;
+    } catch {
+      welcomeWindowId = null;
+      welcomeHostWindowId = null;
+    }
+  }
+  const host = await chrome.windows.get(hostWindowId);
+  /** @type {chrome.windows.CreateData} */
+  const create = {
+    url: chrome.runtime.getURL('welcome.html'),
+    type: 'popup',
+    width: WELCOME_WIDTH,
+    height: WELCOME_HEIGHT,
+    focused: true,
+  };
+  const pos = IH_initWindowBounds.clampPopupToHost(host, WELCOME_WIDTH, WELCOME_HEIGHT);
+  if (pos) {
+    create.left = pos.left;
+    create.top = pos.top;
+  }
+  let win;
+  try {
+    win = await chrome.windows.create(create);
+  } catch (err) {
+    if (!IH_initWindowBounds.isBoundsError(err) || create.left == null) throw err;
+    delete create.left;
+    delete create.top;
+    win = await chrome.windows.create(create);
+  }
+  if (win?.id == null) throw new Error('Welcome window create returned no id');
+  welcomeWindowId = win.id;
+  welcomeHostWindowId = hostWindowId;
+}
+
+async function openNudgeWindow(host) {
+  /** @type {chrome.windows.CreateData} */
+  const create = {
+    url: chrome.runtime.getURL('auto-nudge.html') + `?host=${encodeURIComponent(host)}`,
+    type: 'popup',
+    width: NUDGE_WIDTH,
+    height: NUDGE_HEIGHT,
+    focused: true,
+  };
+  try {
+    const browserWin = await chrome.windows.getLastFocused();
+    const pos = IH_initWindowBounds.clampPopupToHost(browserWin, NUDGE_WIDTH, NUDGE_HEIGHT);
+    if (pos) {
+      create.left = pos.left;
+      create.top = pos.top;
+    }
+  } catch {
+    /* 没有宿主窗口时让浏览器自己放 */
+  }
+  try {
+    const win = await chrome.windows.create(create);
+    if (win?.id == null) throw new Error('Auto-nudge window create returned no id');
+  } catch (err) {
+    if (!IH_initWindowBounds.isBoundsError(err) || create.left == null) throw err;
+    delete create.left;
+    delete create.top;
+    const win = await chrome.windows.create(create);
+    if (win?.id == null) throw new Error('Auto-nudge window create returned no id');
+  }
+}
+
 function resetAutoForTab(tabId) {
   manualTabs.delete(tabId);
   autoGenByTab.set(tabId, (autoGenByTab.get(tabId) || 0) + 1);
@@ -397,44 +527,85 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   autoGenByTab.delete(tabId);
 });
 
-chrome.runtime.onInstalled.addListener((details) => {
+/** Chrome 界面语言只在重启浏览器后生效，跟着走 onStartup 重建一次即可。 */
+function buildContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: AUTO_MENU_ID,
-      title: 'Always analyze this site',
-      contexts: ['page', 'selection'],
+      title: tr('Always analyze this site'),
+      contexts: ['page', 'action'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*'],
+    });
+    chrome.contextMenus.create({
+      id: 'ih-auto-separator',
+      type: 'separator',
+      contexts: ['page'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
     chrome.contextMenus.create({
       id: CONTEXT_MENU_ID,
       title: ANALYZE_MENU_TITLE,
-      contexts: ['page', 'selection'],
+      contexts: ['page'],
     });
     chrome.contextMenus.create({
       id: FORCE_MENU_ID,
       title: FORCE_ANALYZE_MENU_TITLE,
-      contexts: ['page', 'selection'],
+      contexts: ['page', 'action'],
+    });
+    for (const m of IH_localState.CLOUD_MODELS) {
+      chrome.contextMenus.create({
+        id: FORCE_MODEL_PREFIX + m.id,
+        title: `${FORCE_ANALYZE_MENU_TITLE} (${m.label})`,
+        contexts: ['page'],
+      });
+    }
+    chrome.contextMenus.create({
+      id: 'ih-options-separator',
+      type: 'separator',
+      contexts: ['page'],
+    });
+    chrome.contextMenus.create({
+      id: OPTIONS_MENU_ID,
+      title: tr('Options'),
+      contexts: ['page', 'action'],
     });
   });
+}
+
+chrome.runtime.onStartup.addListener(buildContextMenus);
+
+chrome.runtime.onInstalled.addListener((details) => {
+  buildContextMenus();
 
   void IL_optionsAttention.onInstalled(details, IL_OPTIONS_CATALOG);
+  void armFadeDefaultNotice(details);
   IL_setActionIconDotted(true);
   IL_reportInstallOrUpdate(details, EXTENSION_ID);
   if (details.reason === 'install') {
     void chrome.tabs.create({
-      url: chrome.runtime.getURL('options.html') + '?prepare=1',
+      url: chrome.runtime.getURL('options.html') + '?welcome',
     });
   }
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === OPTIONS_MENU_ID) {
+    IL_setActionIconDotted(false);
+    void chrome.runtime.openOptionsPage();
+    return;
+  }
   if (!tab?.id) return;
   // 用过菜单也算用过插件；Chrome 右键工具栏图标本身不发事件，只能在这里灭蓝点
   IL_setActionIconDotted(false);
   if (info.menuItemId === CONTEXT_MENU_ID) void activateTab(tab);
   else if (info.menuItemId === FORCE_MENU_ID) void activateTab(tab, true);
+  else if (typeof info.menuItemId === 'string' && info.menuItemId.startsWith(FORCE_MODEL_PREFIX)) {
+    const modelId = info.menuItemId.slice(FORCE_MODEL_PREFIX.length);
+    if (!knownCloudModel(modelId)) return;
+    void activateTab(tab, true, modelId);
+  }
   // permissions.request 要手势，toggleAutoSite 里首句就发，别在这之前 await
-  else if (info.menuItemId === AUTO_MENU_ID) void toggleAutoSite(info, tab.id);
+  else if (info.menuItemId === AUTO_MENU_ID) void toggleAutoSite(info, tab.id, tab.url);
 });
 
 const ERROR_BODY_SNIPPET = 500;
@@ -462,7 +633,7 @@ async function postAnalyze(text, model, tabId) {
   } catch (err) {
     const msg = String(err?.message || err);
     if (/Failed to fetch|NetworkError|ERR_CONNECTION/i.test(msg)) {
-      throw new Error('Cannot reach the analyze server');
+      throw new Error('Cannot reach the analyze server. Try again later.');
     }
     throw err;
   }
@@ -681,16 +852,20 @@ function assignInitWindowId(id, hostId) {
   notifyOptionsInitOverlay(true);
 }
 
-/** 焦点回到打开 Prepare 时的宿主窗 → 再把 Prepare 拉到前面 */
-function focusInitIfHostFocused(windowId) {
-  if (initWindowId == null || initHostWindowId == null) return;
+/** 焦点回到打开弹窗时的宿主窗 → 再把弹窗拉到前面。两个都开着时 Prepare 优先。 */
+function focusPopupIfHostFocused(windowId) {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-  if (windowId === initWindowId) return;
-  if (windowId !== initHostWindowId) return;
-  void chrome.windows.update(initWindowId, { focused: true }).catch(() => {});
+  if (windowId === initWindowId || windowId === welcomeWindowId) return;
+  if (initWindowId != null && initHostWindowId != null && windowId === initHostWindowId) {
+    void chrome.windows.update(initWindowId, { focused: true }).catch(() => {});
+    return;
+  }
+  if (welcomeWindowId != null && welcomeHostWindowId != null && windowId === welcomeHostWindowId) {
+    void chrome.windows.update(welcomeWindowId, { focused: true }).catch(() => {});
+  }
 }
 
-chrome.windows.onFocusChanged.addListener(focusInitIfHostFocused);
+chrome.windows.onFocusChanged.addListener(focusPopupIfHostFocused);
 
 function resolveInitWaiters(engine) {
   const waiters = initWaiters;
@@ -706,14 +881,8 @@ async function resolveInitWithoutReady() {
 
 async function refuseLocal() {
   initGeneration += 1;
-  const st = await IH_localState.get();
-  if (st.pref === IH_localState.PREF_LOCAL) {
-    await IH_localState.set({ ready: false });
-    resolveInitWaiters('local');
-    return;
-  }
-  await IH_localState.set({ pref: IH_localState.PREF_CLOUD, ready: false });
-  resolveInitWaiters('cloud');
+  await IH_localState.set({ ready: false });
+  resolveInitWaiters('local');
 }
 
 async function abandonInitWindow() {
@@ -806,10 +975,15 @@ async function openInitAndWait() {
       clearInitWindowId();
       void (async () => {
         const st = await IH_localState.get();
-        // 下载中关掉（Hide）继续后台；已就绪则只关窗。其余等同拒绝，避免下一段分析再弹。
+        // 下载中关掉（Hide）继续后台；已就绪则只关窗。
+        // 仅本机：关窗等同拒绝，这次分析不再等。Auto / 云端不改偏好。
         if (st.ready || initBusy) return;
         if (initWaiters.length === 0) return;
-        await refuseLocal();
+        if (st.pref === IH_localState.PREF_LOCAL) {
+          await refuseLocal();
+          return;
+        }
+        await resolveInitWithoutReady();
       })();
     }
     chrome.windows.onRemoved.addListener(onRemoved);
@@ -818,7 +992,6 @@ async function openInitAndWait() {
 
 async function maybeOfferInitOnce() {
   const st = await IH_localState.get();
-  if (st.pref === IH_localState.PREF_CLOUD) return;
   if (st.ready) return;
   if (st.webgpuOk === false) return;
   let webgpu;
@@ -827,9 +1000,6 @@ async function maybeOfferInitOnce() {
   } catch (err) {
     console.warn('[Info Highlight] WebGPU probe failed', err);
     await IH_localState.set({ webgpuOk: false });
-    if (st.pref === IH_localState.PREF_LOCAL) {
-      throw new Error(IH_userErrors.localOnlyFailure(err));
-    }
     return;
   }
   if (!webgpu) return;
@@ -844,7 +1014,12 @@ async function maybeOfferInitOnce() {
   }
 }
 
-function maybeOfferInit() {
+/** prepare：选项页点 Prepare。否则只有「仅本机」且权重未就绪才问。Auto 不弹。 */
+async function maybeOfferInit(prepare = false) {
+  if (!prepare) {
+    const st = await IH_localState.get();
+    if (st.pref !== IH_localState.PREF_LOCAL) return;
+  }
   if (!offerLock) {
     offerLock = maybeOfferInitOnce().finally(async () => {
       offerLock = null;
@@ -864,19 +1039,20 @@ function engineFrom(st) {
 /**
  * @returns {Promise<{ tokens: unknown[], model: string, engine: 'local' | 'cloud' }>}
  */
-async function fetchTokensWithAutoFallback(st, forceCloud, text, tabId) {
+async function fetchTokensWithAutoFallback(st, forceCloud, text, tabId, cloudModel) {
+  const model = cloudModel || st.cloudModel;
   const primary = forceCloud ? 'cloud' : engineFrom(st);
   if (primary === 'cloud') {
-    const got = await fetchTokens('cloud', text, st.cloudModel, tabId);
+    const got = await fetchTokens('cloud', text, model, tabId);
     return { ...got, engine: 'cloud' };
   }
   try {
-    const got = await fetchTokens('local', text, st.cloudModel, tabId);
+    const got = await fetchTokens('local', text, model, tabId);
     return { ...got, engine: 'local' };
   } catch (err) {
     if (forceCloud || st.pref !== IH_localState.PREF_AUTO) throw err;
     if (IH_userErrors.isGpuRelated(err?.message || err)) await IH_localState.set({ webgpuOk: false });
-    const got = await fetchTokens('cloud', text, st.cloudModel, tabId);
+    const got = await fetchTokens('cloud', text, model, tabId);
     return { ...got, engine: 'cloud' };
   }
 }
@@ -890,6 +1066,11 @@ async function initEngine() {
   return sendToEngine({ cmd: 'init', hub: st.hub });
 }
 
+/** 选项页在开着时会实时收 ih-local-progress；这段静默重载完了也要报一声，否则页面卡在「正在下载」。 */
+function notifyInitOutcome(outcome) {
+  chrome.runtime.sendMessage({ type: 'ih-local-init-outcome', outcome }).catch(() => {});
+}
+
 async function fetchTokens(engine, text, cloudModel, tabId) {
   if (engine === 'local') {
     localInflight += 1;
@@ -897,7 +1078,12 @@ async function fetchTokens(engine, text, cloudModel, tabId) {
       const status = await sendToEngine({ cmd: 'status' });
       if (!status?.ok) throw new Error(status?.error || 'local engine status failed');
       if (!status.loaded) {
-        const loaded = await initEngine();
+        let loaded;
+        try {
+          loaded = await initEngine();
+        } finally {
+          notifyInitOutcome(loaded?.ok ? 'ok' : 'failed');
+        }
         if (!loaded?.ok) throw new Error(loaded?.error || 'local model reload failed');
       }
       const res = await runLocalAnalyze(tabId, () => sendToEngine({ cmd: 'analyze', text }));
@@ -919,12 +1105,9 @@ async function fetchTokens(engine, text, cloudModel, tabId) {
   return { tokens, model, device };
 }
 
-function isOwnOptionsPage(sender) {
-  const url = String(sender?.url || '').split('?')[0];
-  return url === chrome.runtime.getURL('options.html');
-}
-
-async function handleAnalyze(text, skipCache, forceCloud, tabId) {
+async function handleAnalyze(text, skipCache, forceCloud, tabId, cloudModel) {
+  const pinned = knownCloudModel(cloudModel);
+  if (pinned) forceCloud = true;
   if (!forceCloud) await maybeOfferInit();
   const st = await IH_localState.get();
   if (!forceCloud) {
@@ -933,20 +1116,21 @@ async function handleAnalyze(text, skipCache, forceCloud, tabId) {
   }
   let engine = forceCloud ? 'cloud' : engineFrom(st);
   let inferred = false;
-  let model = engine === 'local' ? IH_localState.MODEL_ID : st.cloudModel;
+  let model = engine === 'local' ? IH_localState.MODEL_ID : (pinned || st.cloudModel);
   let device = '';
   let tokens;
   try {
     tokens = await IH_analyzeCache.tokens(text, async () => {
       inferred = true;
-      const got = await fetchTokensWithAutoFallback(st, forceCloud, text, tabId);
+      const got = await fetchTokensWithAutoFallback(st, forceCloud, text, tabId, pinned);
       if (got.model) model = got.model;
       if (got.device) device = got.device;
       engine = got.engine;
       return got.tokens;
-    }, { skip: skipCache });
+    }, { skip: !!skipCache || !!pinned });
   } catch (err) {
     if (!forceCloud && st.pref === IH_localState.PREF_LOCAL) {
+      if (IH_userErrors.isGpuRelated(err?.message || err)) await IH_localState.set({ webgpuOk: false });
       throw new Error(IH_userErrors.localOnlyFailure(err));
     }
     throw err;
@@ -1009,6 +1193,57 @@ async function handleLinger(msg) {
   await destroyOffscreen();
 }
 
+/** 上次已随用量上报的选项快照。没有这份键时，下一次分析会带上当前选项。 */
+const OPTIONS_REPORTED_KEY = 'ih_options_reported';
+
+function canonOptions(snap) {
+  return JSON.stringify(Object.keys(snap).sort().map((k) => [k, snap[k]]));
+}
+
+/** 选项页上的选择，外加本机 WebGPU 探测。自动高亮站点只记条数。 */
+async function readOptionsSnapshot() {
+  const HS = IH_highlightStyle;
+  const [raw, st, sites] = await Promise.all([
+    chrome.storage.local.get(IH_optionDefaults),
+    IH_localState.get(),
+    IH_autoSites.list(),
+  ]);
+  const prefs = HS.normalizePrefs(raw);
+  const webgpu = st.webgpuOk;
+  return {
+    ih_article_only: IH_optionStored('ih_article_only', raw.ih_article_only),
+    show_progress: IH_optionStored('show_progress', raw.show_progress),
+    show_token_tip: IH_optionStored('show_token_tip', raw.show_token_tip),
+    ih_word_merge: IH_optionStored('ih_word_merge', raw.ih_word_merge),
+    ih_paint_style: prefs.paintStyle,
+    ih_highlight_color: prefs.highlightColor,
+    ih_text_color: prefs.textColor,
+    ih_max_highlight_alpha: prefs.maxAlphaDepth,
+    ih_fade_min_pct: prefs.fadeMinPct,
+    ih_fade_norm: prefs.fadeNorm,
+    ih_fade_norm_pct: prefs.fadeNormPct,
+    ih_two_tier: prefs.twoTier,
+    ih_highlight_threshold_pct: prefs.thresholdPct,
+    ih_analyze_pref: st.pref,
+    ih_cloud_model: st.cloudModel,
+    ih_model_hub: st.hub,
+    ih_webgpu_ok: webgpu === true ? true : webgpu === false ? false : null,
+    ih_local_ready: st.ready === true,
+    auto_sites: sites.length,
+  };
+}
+
+/** 与上次已报快照不同才返回；相同则 null。 */
+async function changedOptionsSnapshot() {
+  const snap = await readOptionsSnapshot();
+  const prev = await chrome.storage.local.get(OPTIONS_REPORTED_KEY);
+  const old = prev[OPTIONS_REPORTED_KEY];
+  if (old && typeof old === 'object' && !Array.isArray(old) && canonOptions(old) === canonOptions(snap)) {
+    return null;
+  }
+  return snap;
+}
+
 async function postUsageReport(body) {
   let engine = body?.engine;
   if (engine !== 'local' && engine !== 'cloud') {
@@ -1041,7 +1276,38 @@ async function postUsageReport(body) {
     const detail = body?.detail;
     if (detail && typeof detail === 'object' && !Array.isArray(detail)) payload.detail = detail;
   }
+  const options = await changedOptionsSnapshot();
+  if (options) payload.options = options;
   IL_postKeepalive('/api/extension-usage', payload);
+  if (options) await chrome.storage.local.set({ [OPTIONS_REPORTED_KEY]: options });
+}
+
+const AUTHOR_NOTE_MESSAGE_MAX = 4000;
+const AUTHOR_NOTE_CONTACT_MAX = 200;
+
+/** 选项页 About 留言。只带正文、可选联系方式和 client_id，不带页面。 */
+async function postAuthorNote(msg) {
+  const message = String(msg?.message ?? '').trim().slice(0, AUTHOR_NOTE_MESSAGE_MAX);
+  if (!message) throw new Error('Missing message');
+  const contact = String(msg?.contact ?? '').trim().slice(0, AUTHOR_NOTE_CONTACT_MAX);
+  const client_id = await IL_getClientId();
+  if (!client_id) throw new Error('Missing client id');
+  const body = {
+    message,
+    extension: EXTENSION_ID,
+    extension_version: chrome.runtime.getManifest().version,
+    client_id,
+  };
+  if (contact) body.contact = contact;
+  const res = await fetch(`${IL_API_BASE}/api/extension-feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.success || data.stored === false) {
+    throw new Error('Could not send');
+  }
 }
 
 async function postLocalInitReport({ outcome, duration_ms, error }) {
@@ -1095,7 +1361,7 @@ async function handleAgree() {
     initCancellable = false;
     initBusy = false;
     void postLocalInitReport({ outcome, duration_ms: Date.now() - t0, error });
-    chrome.runtime.sendMessage({ type: 'ih-local-init-outcome', outcome }).catch(() => {});
+    notifyInitOutcome(outcome);
   }
 }
 
@@ -1133,6 +1399,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg?.type === 'ih-open-auto-nudge') {
+    const host = IH_autoSites.parseHost(msg.host || '');
+    if (host && !host.includes('*')) {
+      void openNudgeWindow(host).finally(() => sendResponse());
+      return true;
+    }
+    return;
+  }
+
+  if (msg?.type === 'ih-open-welcome') {
+    openWelcomeWindow(sender.tab?.windowId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
+    return true;
+  }
+
   if (msg?.type === 'ih-local-linger') {
     handleLinger(msg)
       .then(() => sendResponse({ ok: true }))
@@ -1156,6 +1438,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const prev = await resolveEngine();
       await IH_localState.set({ pref });
       if ((await resolveEngine()) !== prev) await IH_analyzeCache.dropAll();
+      if (pref === IH_localState.PREF_LOCAL) await maybeOfferInit();
       sendResponse({ ok: true, pref });
     })().catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
@@ -1183,7 +1466,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'ih-local-open-init') {
-    maybeOfferInit()
+    maybeOfferInit(true)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
@@ -1211,12 +1494,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
   }
-  if (msg?.type === 'ih-local-refuse') {
-    refuseLocal()
-      .then(() => sendResponse({ ok: true }))
-      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
-    return true;
-  }
   if (msg?.type === 'ih-local-drop-model') {
     dropLocalModel()
       .then(() => sendResponse({ ok: true }))
@@ -1224,8 +1501,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.type === 'ih-open-highlight-options') {
+    void chrome.tabs.create({ url: chrome.runtime.getURL('options.html') + '#highlight' });
+    return;
+  }
+
   if (msg?.type === 'ih-usage-report') {
     postUsageReport(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
+    return true;
+  }
+
+  if (msg?.type === 'ih-author-note') {
+    postAuthorNote(msg)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
@@ -1249,7 +1538,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, error: 'Missing text' });
     return;
   }
-  handleAnalyze(text, !!msg.skipCache, isOwnOptionsPage(sender), sender.tab?.id)
+  handleAnalyze(text, !!msg.skipCache, false, sender.tab?.id, msg.cloudModel)
     .then(({ data, inferred, engine }) => sendResponse({ ok: true, data, inferred, engine }))
     .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }));
   return true;
