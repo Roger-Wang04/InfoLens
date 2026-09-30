@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -12,10 +13,10 @@ EXTENSIONS = Path(__file__).resolve().parents[1]
 SHARED = EXTENSIONS / "shared"
 LOCALES = "_locales"  # 由 merge_locales 独占产出，不走通用拷贝
 FLATTEN = "page/"  # 注入宿主页的脚本平铺到包根，迁就 background.js 里 CONTENT_JS 的路径
-SKIP_DIRS = {LOCALES, "dist", "e2e", "local-samples", "node_modules", "test"}
+SKIP_DIRS = {LOCALES, "dist", "e2e", "firefox", "local-samples", "node_modules", "test"}
 SKIP_NAMES = {
     ".DS_Store", "package.json", "package-lock.json",
-    "config.js", "config.secrets.js",
+    "config.js", "config.example.js", "config.secrets.js",
 }
 SKIP_SUFFIXES = {".md", ".mjs", ".py", ".sh"}  # 文档与开发脚本不进扩展
 
@@ -126,9 +127,45 @@ def write_config(name: str, source: Path, output: Path, release: bool) -> None:
     print("build: config.js <- config.js")
 
 
-def build(name: str, release: bool) -> Path:
+GECKO_ID = {"info-highlight": "info-highlight@infolens.local"}
+GECKO_MIN_VERSION = "140.0"  # data_collection_permissions 需要 140+（MV3 event page 本身 128+ 即可）
+LOCAL_BACKEND_ORIGINS = ["http://localhost/*", "http://127.0.0.1/*"]
+
+
+def firefox_manifest(name: str, output: Path) -> None:
+    """Chrome MV3 manifest -> Firefox MV3：service_worker 换 event page，去掉 offscreen。
+    background.scripts = firefox/shim.js + background.js 里 importScripts 的顺序 + background.js。
+    """
+    path = output / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    bg = manifest["background"].pop("service_worker")
+    text = (EXTENSIONS / name / bg).read_text(encoding="utf-8")
+    imported = re.findall(r"^importScripts\('([^']+)'\);", text, flags=re.M)
+    manifest["background"]["scripts"] = ["firefox-shim.js", *imported, bg]
+    manifest["permissions"] = [p for p in manifest["permissions"] if p != "offscreen"]
+    # config.js 里 IL_API_BASE = 'http://host:port' 的 origin 也声明为可选主机权限
+    config = (output / "config.js").read_text(encoding="utf-8")
+    custom = re.search(r"IL_API_BASE\s*=\s*['\"](https?://[^/'\"]+)", config)
+    extra = [f"{custom.group(1)}/*"] if custom else []
+    manifest["optional_host_permissions"] = [
+        *manifest.get("optional_host_permissions", []), *LOCAL_BACKEND_ORIGINS, *extra,
+    ]
+    manifest["browser_specific_settings"] = {
+        "gecko": {
+            "id": GECKO_ID[name],
+            "strict_min_version": GECKO_MIN_VERSION,
+            # 云端模式会把页面正文发到 API；仅本机模式不外发
+            "data_collection_permissions": {"required": ["websiteContent"]},
+        }
+    }
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    copy(EXTENSIONS / name / "firefox" / "shim.js", output / "firefox-shim.js")
+    print(f"build: manifest.json <- firefox ({len(imported)} background scripts)")
+
+
+def build(name: str, release: bool, firefox: bool = False) -> Path:
     source = EXTENSIONS / name
-    output = EXTENSIONS / "dist" / name
+    output = EXTENSIONS / "dist" / (f"{name}-firefox" if firefox else name)
     shutil.rmtree(output, ignore_errors=True)
     shared = shared_payload()
     packaged = set(shared.values())
@@ -145,6 +182,8 @@ def build(name: str, release: bool) -> Path:
     copy_info_highlight_transformers(source, output)
     # 上架写空配置，不带本地 config.js。本地构建有这份才拷进去，没有也写空的。
     write_config(name, source, output, release)
+    if firefox:
+        firefox_manifest(name, output)
     print(output)
     return output
 
@@ -159,6 +198,15 @@ if __name__ == "__main__":
         "--release", action="store_true",
         help="上架构建：写入空 config.js，不带本地调试配置",
     )
+    parser.add_argument(
+        "--firefox", action="store_true",
+        help="Firefox 构建（仅 info-highlight）：输出 dist/info-highlight-firefox",
+    )
     args = parser.parse_args()
+    if args.firefox:
+        if args.name not in GECKO_ID:
+            parser.error(f"--firefox 需指定插件名，可选：{', '.join(GECKO_ID)}")
+        build(args.name, args.release, firefox=True)
+        raise SystemExit(0)
     for name in ([args.name] if args.name else extension_names()):
         build(name, args.release)
