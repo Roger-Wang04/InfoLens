@@ -54,7 +54,7 @@ Firefox grants optional host permissions per site; the extension asks on first u
 Two independent options:
 
 1. **In-browser model (default local mode)**: Options → analysis mode "Local only" (or Auto) → "Local model init" → agree to download Gemma 3 270M (ONNX q4, ≈ 200 MB from Hugging Face, or ModelScope). Weights are cached in the Cache API, inference runs in the extension (WebGPU if Firefox exposes it, else WASM on CPU). No text leaves the machine.
-2. **Your own backend**: run the Python server (`python run.py --no-facade-token`, port 5001; CORS on by default; the extension sends no `X-Facade-Token`, so the token check must be off, and keep the server on localhost or a trusted LAN), then create gitignored `extension/info-highlight/config.js`:
+2. **Your own backend**: run the Python server (`python run.py --no-facade-token`, port 5001; CORS on by default; the extension sends no `X-Facade-Token`, so the token check must be off, and keep the server on localhost or a trusted LAN), then `cp config.example.js config.js` in `extension/info-highlight/` (gitignored; the Firefox build also declares that URL's origin as an optional host permission). Contents:
 
    ```js
    var IH_CONFIG = {};

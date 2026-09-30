@@ -16,7 +16,7 @@ FLATTEN = "page/"  # 注入宿主页的脚本平铺到包根，迁就 background
 SKIP_DIRS = {LOCALES, "dist", "e2e", "firefox", "local-samples", "node_modules", "test"}
 SKIP_NAMES = {
     ".DS_Store", "package.json", "package-lock.json",
-    "config.js", "config.secrets.js",
+    "config.js", "config.example.js", "config.secrets.js",
 }
 SKIP_SUFFIXES = {".md", ".mjs", ".py", ".sh"}  # 文档与开发脚本不进扩展
 
@@ -143,8 +143,12 @@ def firefox_manifest(name: str, output: Path) -> None:
     imported = re.findall(r"^importScripts\('([^']+)'\);", text, flags=re.M)
     manifest["background"]["scripts"] = ["firefox-shim.js", *imported, bg]
     manifest["permissions"] = [p for p in manifest["permissions"] if p != "offscreen"]
+    # config.js 里 IL_API_BASE = 'http://host:port' 的 origin 也声明为可选主机权限
+    config = (output / "config.js").read_text(encoding="utf-8")
+    custom = re.search(r"IL_API_BASE\s*=\s*['\"](https?://[^/'\"]+)", config)
+    extra = [f"{custom.group(1)}/*"] if custom else []
     manifest["optional_host_permissions"] = [
-        *manifest.get("optional_host_permissions", []), *LOCAL_BACKEND_ORIGINS,
+        *manifest.get("optional_host_permissions", []), *LOCAL_BACKEND_ORIGINS, *extra,
     ]
     manifest["browser_specific_settings"] = {
         "gecko": {
