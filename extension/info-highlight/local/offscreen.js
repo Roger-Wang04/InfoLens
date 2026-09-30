@@ -6,7 +6,6 @@ import { AutoTokenizer, AutoModelForCausalLM, env } from '../vendor/transformers
 
 const MODEL_ID = globalThis.IH_localState.MODEL_ID;
 const DTYPE = globalThis.IH_localState.MODEL_DTYPE;
-const DEVICE = 'webgpu';
 const MAX_LENGTH = 2000;
 /** 单次前向 token 数。128 × 262144 × 4B ≈ 128MB，挡住 WASM 堆高水位。 */
 const CHUNK_SIZE = 128;
@@ -24,6 +23,7 @@ if (env.backends?.onnx?.wasm) {
 
 let tokenizer = null;
 let model = null;
+let deviceLabel = 'local WebGPU';
 let bosId = null;
 /** @type {Set<number>} */
 let specialIds = new Set();
@@ -79,8 +79,10 @@ async function init(hub, progress) {
   }
   env.remoteHost = globalThis.IH_localState.hubRemoteHost(hub);
   tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID, { progress_callback: progress });
+  const device = await globalThis.IH_localState.localDevice();
+  deviceLabel = device === 'webgpu' ? 'local WebGPU' : 'local WASM';
   model = await AutoModelForCausalLM.from_pretrained(MODEL_ID, {
-    device: DEVICE,
+    device,
     dtype: DTYPE,
     progress_callback: progress,
   });
@@ -218,7 +220,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       disarmLinger();
       try {
         const result = await analyzeText(msg.text);
-        result.device = 'local WebGPU';
+        result.device = deviceLabel;
         return { ok: true, result };
       } finally {
         // 标签暂停不再发消息时，靠这段闲置计时卸引擎；下一段到来会先 disarm

@@ -35,6 +35,34 @@ PDF 与 `file:` 不进这条路。名单在选项页 Auto analyze 里增删（�
 
 本地调试改 gitignore 的 `config.js`（例如 `modalDebug: true`），再构建。没有这份就用空配置。上架构建带 `--release`，写入空配置，不带本地这份。
 
+## Firefox
+
+Firefox (≥ 140) MV3 build, same source. Differences handled by `build_extension.py --firefox`:
+`background.service_worker` → `background.scripts` (event page, order taken from `importScripts` in `background.js`), no `offscreen` permission (`firefox/shim.js` hosts the engine page in a hidden iframe of the background page), `browser_specific_settings.gecko`, and a WASM (CPU) fallback when Firefox has no WebGPU.
+
+```bash
+cd extension/info-highlight && npm install
+python3 extension/scripts/build_extension.py --firefox info-highlight   # → extension/dist/info-highlight-firefox/
+```
+
+Load: `about:debugging#/runtime/this-firefox` → Load Temporary Add-on → pick `dist/info-highlight-firefox/manifest.json`. Temporary add-ons vanish on restart; for a permanent install use Firefox Developer/Nightly with `xpinstall.signatures.required=false` and a zip, or sign via AMO (`npx web-ext sign`).
+
+Firefox grants optional host permissions per site; the extension asks on first use. For the local model, allow the Hugging Face hosts when prompted (see below).
+
+### Run the model locally
+
+Two independent options:
+
+1. **In-browser model (default local mode)**: Options → analysis mode "Local only" (or Auto) → "Local model init" → agree to download Gemma 3 270M (ONNX q4, ≈ 200 MB from Hugging Face, or ModelScope). Weights are cached in the Cache API, inference runs in the extension (WebGPU if Firefox exposes it, else WASM on CPU). No text leaves the machine.
+2. **Your own backend**: run the Python server (`python run.py`, port 5001; CORS on by default), then create gitignored `extension/info-highlight/config.js`:
+
+   ```js
+   var IH_CONFIG = {};
+   IL_API_BASE = 'http://localhost:5001';
+   ```
+
+   Build without `--release` (release writes an empty config). Allow `http://localhost/*` when Firefox asks, and set the mode to "Cloud". Model choice is the server's `--base_model` (see `model_paths.py`).
+
 ## Test and package
 
 ```bash

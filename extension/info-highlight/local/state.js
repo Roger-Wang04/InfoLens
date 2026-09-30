@@ -120,7 +120,7 @@ globalThis.IH_localState ||= (function () {
     return HUBS[normalizeHub(h)].remoteHost;
   }
 
-  async function probeWebGPU() {
+  async function hasWebGPU() {
     const gpu = globalThis.navigator?.gpu;
     if (!gpu) return false;
     try {
@@ -132,6 +132,18 @@ globalThis.IH_localState ||= (function () {
     } catch {
       return false;
     }
+  }
+
+  const IS_FIREFOX = /\bFirefox\//.test(globalThis.navigator?.userAgent || '');
+
+  /** 本机引擎可用：Chrome 要 WebGPU；Firefox 的 WebGPU 覆盖不全，无 GPU 时退回 WASM（CPU，慢）。 */
+  async function probeWebGPU() {
+    if (await hasWebGPU()) return true;
+    return IS_FIREFOX && typeof WebAssembly === 'object';
+  }
+
+  async function localDevice() {
+    return (await hasWebGPU()) ? 'webgpu' : 'wasm';
   }
 
   function cacheApi() {
@@ -189,6 +201,7 @@ globalThis.IH_localState ||= (function () {
     hubOrigins,
     hubRemoteHost,
     probeWebGPU,
+    localDevice,
     modelCacheUsage,
     dropModelCache,
   };
